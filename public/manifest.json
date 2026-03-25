@@ -1,0 +1,21 @@
+{
+  "name": "Catalogue Magasin Nesle",
+  "short_name": "Catalogue",
+  "description": "Gestion de catalogue magasin avec scan photo SAP.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e293b",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/inventory/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/inventory/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
