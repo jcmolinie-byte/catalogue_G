@@ -1,0 +1,7 @@
+{
+  "name": "Catalogue Magasin Nesle",
+  "description": "Gestion de catalogue avec recherche avancée, scan photo et rappels de sortie SAP.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
