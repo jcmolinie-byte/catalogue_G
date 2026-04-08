@@ -187,19 +187,15 @@ export default function App() {
       // Configure hints for better performance
       const hints = new Map();
       const formats = [
-        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_128, // Priority
         BarcodeFormat.CODE_39,
         BarcodeFormat.CODE_93,
-        BarcodeFormat.CODABAR,
         BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-        BarcodeFormat.QR_CODE,
-        BarcodeFormat.ITF,
-        BarcodeFormat.UPC_A,
-        BarcodeFormat.UPC_E
+        BarcodeFormat.QR_CODE
       ];
       hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-      hints.set(DecodeHintType.TRY_HARDER, true); // More CPU intensive but better results
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      hints.set(DecodeHintType.ASSUME_GS1, true); // Often used with Code 128
 
       codeReaderRef.current = new BrowserMultiFormatReader(hints);
       
@@ -219,8 +215,8 @@ export default function App() {
         video: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           facingMode: deviceId ? undefined : 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280 }, // 720p is often better for real-time JS decoding than 1080p
+          height: { ideal: 720 },
           frameRate: { ideal: 30 }
         }
       };
@@ -293,9 +289,13 @@ export default function App() {
       codeReaderRef.current = null;
     }
     
-    setScanResult(`Code détecté: ${code}`);
+    // Clean up common Code 128 / GS1 prefixes (like ]C1)
+    let cleanCode = code.trim();
+    if (cleanCode.startsWith(']C1')) {
+      cleanCode = cleanCode.substring(3);
+    }
     
-    const cleanCode = code.trim();
+    setScanResult(`Code détecté: ${cleanCode}`);
     
     // Find item with matching SAP code (exact or partial)
     const foundItem = catalogItemsRef.current.find(item => {
