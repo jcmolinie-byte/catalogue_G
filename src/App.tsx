@@ -189,6 +189,8 @@ export default function App() {
       const formats = [
         BarcodeFormat.CODE_128,
         BarcodeFormat.CODE_39,
+        BarcodeFormat.CODE_93,
+        BarcodeFormat.CODABAR,
         BarcodeFormat.EAN_13,
         BarcodeFormat.EAN_8,
         BarcodeFormat.QR_CODE,
@@ -293,8 +295,15 @@ export default function App() {
     
     setScanResult(`Code détecté: ${code}`);
     
-    // Find item with matching SAP code
-    const foundItem = catalogItemsRef.current.find(item => item.sapCode === code);
+    const cleanCode = code.trim();
+    
+    // Find item with matching SAP code (exact or partial)
+    const foundItem = catalogItemsRef.current.find(item => {
+      const itemSap = String(item.sapCode || '').trim();
+      return itemSap === cleanCode || 
+             (cleanCode.length > 4 && itemSap.includes(cleanCode)) ||
+             (itemSap.length > 4 && cleanCode.includes(itemSap));
+    });
     
     setTimeout(() => {
       if (foundItem) {
@@ -539,22 +548,22 @@ export default function App() {
                 {isScanning && (
                   <>
                     <div className="absolute inset-0 border-[40px] border-black/40 flex items-center justify-center pointer-events-none">
-                      <div className="w-64 h-64 border-2 border-blue-500 rounded-3xl relative">
+                      <div className="w-80 h-48 border-2 border-blue-500 rounded-2xl relative">
                         <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white -translate-x-1 -translate-y-1 rounded-tl-lg" />
                         <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white translate-x-1 -translate-y-1 rounded-tr-lg" />
                         <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white -translate-x-1 translate-y-1 rounded-bl-lg" />
                         <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white translate-x-1 translate-y-1 rounded-br-lg" />
                         
                         <motion.div 
-                          animate={{ top: ['0%', '100%', '0%'] }}
-                          transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                          className="absolute left-0 right-0 h-0.5 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)]"
+                          animate={{ top: ['10%', '90%', '10%'] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="absolute left-4 right-4 h-0.5 bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]"
                         />
                       </div>
                     </div>
                     <div className="absolute bottom-12 left-0 right-0 flex justify-center px-4">
-                      <p className="text-white text-sm bg-black/50 px-4 py-2 rounded-full backdrop-blur-md">
-                        Placez le code-barres dans le cadre
+                      <p className="text-white text-sm bg-black/60 px-6 py-3 rounded-full backdrop-blur-md border border-white/10">
+                        Alignez le code-barres horizontalement
                       </p>
                     </div>
                   </>
