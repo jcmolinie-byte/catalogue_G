@@ -13,11 +13,12 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
-  FileUp
+  FileUp,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
-import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException, BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { CatalogItem, View } from './types';
 import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
@@ -35,6 +36,8 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<CatalogItem | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [hasFlash, setHasFlash] = useState(false);
+  const [isFlashOn, setIsFlashOn] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -181,21 +184,68 @@ export default function App() {
         throw new Error("Élément vidéo non trouvé dans le DOM.");
       }
 
-      codeReaderRef.current = new BrowserMultiFormatReader();
+      // Configure hints for better performance
+      const hints = new Map();
+      const formats = [
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.QR_CODE,
+        BarcodeFormat.ITF,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E
+      ];
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+      hints.set(DecodeHintType.TRY_HARDER, true); // More CPU intensive but better results
+
+      codeReaderRef.current = new BrowserMultiFormatReader(hints);
       
-      // Use undefined to let the library pick the default back camera
-      codeReaderRef.current.decodeFromVideoDevice(
-        undefined, 
-        videoRef.current, 
+      // Try to find the back camera explicitly
+      const videoDevices = await codeReaderRef.current.listVideoInputDevices();
+      const backCamera = videoDevices.find(device => 
+        device.label.toLowerCase().includes('back') || 
+        device.label.toLowerCase().includes('arrière') ||
+        device.label.toLowerCase().includes('rear') ||
+        device.label.toLowerCase().includes('environment')
+      );
+
+      const deviceId = backCamera ? backCamera.deviceId : undefined;
+
+      // Start decoding with specific constraints for better quality
+      const constraints: MediaStreamConstraints = {
+        video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          facingMode: deviceId ? undefined : 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 }
+        }
+      };
+
+      await codeReaderRef.current.decodeFromConstraints(
+        constraints,
+        videoRef.current,
         (result, err) => {
           if (result) {
             handleScanResult(result.getText());
           }
           if (err && !(err instanceof NotFoundException)) {
-            console.error("Erreur de scan:", err);
+            // Ignore common "not found" errors
           }
         }
       );
+
+      // Check for flash support
+      const stream = videoRef.current.srcObject as MediaStream;
+      if (stream) {
+        const track = stream.getVideoTracks()[0];
+        const capabilities = track.getCapabilities() as any;
+        if (capabilities.torch) {
+          setHasFlash(true);
+        }
+      }
+      
     } catch (err) {
       console.error("Error accessing camera:", err);
       const message = err instanceof Error ? err.message : "Erreur inconnue";
@@ -206,11 +256,31 @@ export default function App() {
     }
   };
 
+  const toggleFlash = async () => {
+    if (!videoRef.current || !hasFlash) return;
+    
+    try {
+      const stream = videoRef.current.srcObject as MediaStream;
+      const track = stream.getVideoTracks()[0];
+      const newFlashState = !isFlashOn;
+      
+      await track.applyConstraints({
+        advanced: [{ torch: newFlashState }]
+      } as any);
+      
+      setIsFlashOn(newFlashState);
+    } catch (err) {
+      console.error("Error toggling flash:", err);
+    }
+  };
+
   const stopCamera = () => {
     if (codeReaderRef.current) {
       codeReaderRef.current.reset();
       codeReaderRef.current = null;
     }
+    setIsFlashOn(false);
+    setHasFlash(false);
     setIsScanning(false);
   };
 
@@ -428,7 +498,19 @@ export default function App() {
                   <ArrowLeft size={24} />
                 </button>
                 <h2 className="font-bold">Scanner Code SAP</h2>
-                <div className="w-10" />
+                {hasFlash ? (
+                  <button 
+                    onClick={toggleFlash}
+                    className={cn(
+                      "p-2 rounded-full transition-colors",
+                      isFlashOn ? "bg-yellow-500 text-black" : "hover:bg-white/10 text-white"
+                    )}
+                  >
+                    <Zap size={24} className={isFlashOn ? "fill-current" : ""} />
+                  </button>
+                ) : (
+                  <div className="w-10" />
+                )}
               </div>
 
               <div className="flex-1 relative flex items-center justify-center overflow-hidden">
@@ -600,12 +682,28 @@ export default function App() {
                 <div className="flex gap-3">
                   <button 
                     onClick={() => {
+                      const isTaking = !selectedItem.reminderActive;
+                      
                       setCatalogItems(prev => prev.map(item => 
                         item.id === selectedItem.id 
                           ? { ...item, reminderActive: !item.reminderActive }
                           : item
                       ));
                       setSelectedItem(prev => prev ? { ...prev, reminderActive: !prev.reminderActive } : null);
+
+                      if (isTaking) {
+                        const subject = encodeURIComponent(`Sortie Article : ${selectedItem.name}`);
+                        const body = encodeURIComponent(
+                          `Bonjour,\n\n` +
+                          `L'article suivant a été sorti du stock :\n` +
+                          `- Désignation : ${selectedItem.name}\n` +
+                          `- Code SAP : ${selectedItem.sapCode}\n` +
+                          `- Emplacement : ${selectedItem.location}\n\n` +
+                          `Merci d'effectuer la sortie dans SAP.`
+                        );
+                        // Remplacez l'adresse ci-dessous par l'adresse réelle
+                        window.location.href = `mailto:votre-email@exemple.com?subject=${subject}&body=${body}`;
+                      }
                     }}
                     className={cn(
                       "flex-1 py-4 rounded-2xl font-bold active:scale-95 transition-all",
