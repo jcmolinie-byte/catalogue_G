@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
-import { Html5Qrcode } from 'html5-qrcode';
+import { BrowserMultiFormatReader, NotFoundException, BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { CatalogItem, View } from './types';
 import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
@@ -39,7 +39,7 @@ export default function App() {
   const [hasFlash, setHasFlash] = useState(false);
   const [isFlashOn, setIsFlashOn] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const codeReaderRef = useRef<Html5Qrcode | null>(null);
+  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [itemsLimit, setItemsLimit] = useState(20);
@@ -184,7 +184,7 @@ export default function App() {
         throw new Error("Élément vidéo non trouvé dans le DOM.");
       }
 
-      // Hints optimisés pour Code 128 (format Tereos)
+      // Hints pour Code 128 uniquement (format Tereos/SAP)
       const hints = new Map();
       hints.set(DecodeHintType.POSSIBLE_FORMATS, [
         BarcodeFormat.CODE_128,
@@ -192,16 +192,14 @@ export default function App() {
         BarcodeFormat.QR_CODE,
       ]);
       hints.set(DecodeHintType.TRY_HARDER, true);
+      // ASSUME_GS1 supprimé : nos codes SAP ne sont pas au format GS1
 
-      // delayBetweenScanAttempts réduit pour réactivité maximale
-      codeReaderRef.current = new BrowserMultiFormatReader(hints, {
-        delayBetweenScanAttempts: 100,
-        delayBetweenScanSuccess: 300,
-      });
+      codeReaderRef.current = new BrowserMultiFormatReader(hints, 100);
+      // 100ms entre chaque tentative (défaut = 500ms, trop lent)
 
-      // decodeFromConstraints gère tout en interne (stream + video + boucle de scan)
-      // On force facingMode exact: environment pour Android - pas de listVideoInputDevices
-      const controls = await codeReaderRef.current.decodeFromConstraints(
+      // decodeFromConstraints gère stream + video + boucle en interne
+      // facingMode exact:environment force la caméra arrière sur Android
+      await codeReaderRef.current.decodeFromConstraints(
         {
           video: {
             facingMode: { exact: 'environment' },
@@ -220,7 +218,7 @@ export default function App() {
         }
       );
 
-      // Vérification flash après ouverture du stream
+      // Flash support
       if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         const track = stream.getVideoTracks()[0];
@@ -261,7 +259,6 @@ export default function App() {
       codeReaderRef.current.reset();
       codeReaderRef.current = null;
     }
-    // Libérer explicitement le stream caméra
     if (videoRef.current?.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
