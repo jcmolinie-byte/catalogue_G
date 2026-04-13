@@ -294,23 +294,37 @@ export default function App() {
     try {
       setIsAnalyzing(true);
       
+      // Check if video is actually playing and has dimensions
+      if (videoRef.current.readyState < 2 || videoRef.current.videoWidth === 0) {
+        throw new Error("La caméra n'est pas encore prête. Attendez une seconde et réessayez.");
+      }
+
       // Capture frame from video
       const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
+      // Use a slightly smaller resolution for faster AI analysis
+      const scale = Math.min(1, 1024 / Math.max(videoRef.current.videoWidth, videoRef.current.videoHeight));
+      canvas.width = videoRef.current.videoWidth * scale;
+      canvas.height = videoRef.current.videoHeight * scale;
+      
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error("Impossible de créer le contexte canvas");
+      if (!ctx) throw new Error("Impossible de créer le contexte de capture d'image.");
       
-      ctx.drawImage(videoRef.current, 0, 0);
-      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("La clé API Gemini n'est pas configurée. Veuillez l'ajouter dans les paramètres.");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       
-      // Prepare the list of item names for Gemini
-      const itemNames = catalogItems.map(item => `${item.name} (Code: ${item.sapCode})`).join('\n');
+      // Limit the number of items sent to the AI to avoid token limits (take first 300)
+      const itemsToAnalyze = catalogItems.slice(0, 300);
+      const itemNames = itemsToAnalyze.map(item => `- ${item.name} (Code: ${item.sapCode})`).join('\n');
 
       const prompt = `Tu es un expert en gestion de stock. Voici une photo d'un article de magasin. 
-      Identifie cet article parmi la liste suivante et donne-moi uniquement le code SAP correspondant.
+      Identifie cet article parmi la liste suivante et donne-moi UNIQUEMENT le code SAP correspondant.
       Si tu n'es pas sûr, donne l'article le plus probable.
       Réponds uniquement avec le code SAP, rien d'autre.
       
@@ -331,7 +345,8 @@ export default function App() {
 
       const sapCode = response.text?.trim();
       if (sapCode) {
-        const foundItem = catalogItems.find(item => item.sapCode === sapCode);
+        // Try to find exact match
+        const foundItem = catalogItems.find(item => item.sapCode === sapCode || sapCode.includes(item.sapCode));
         if (foundItem) {
           setSelectedItem(foundItem);
           setView('list');
@@ -340,10 +355,13 @@ export default function App() {
           setSearchQuery(sapCode);
           setView('list');
         }
+      } else {
+        throw new Error("L'IA n'a pas pu identifier l'article.");
       }
     } catch (err) {
       console.error("Erreur d'analyse AI:", err);
-      alert("Erreur lors de l'analyse de la photo. Veuillez réessayer.");
+      const message = err instanceof Error ? err.message : "Erreur inconnue";
+      alert(`Erreur d'analyse : ${message}`);
     } finally {
       setIsAnalyzing(false);
     }
