@@ -806,10 +806,10 @@ export default function App() {
                           `- Désignation : ${selectedItem.name}\n` +
                           `- Code SAP : ${selectedItem.sapCode}\n` +
                           `- Emplacement : ${selectedItem.location}\n\n` +
-                          `Merci d'effectuer la sortie dans SAP.`
+                          `Merci de vérifier la sortie dans SAP.`
                         );
                         // Remplacez l'adresse ci-dessous par l'adresse réelle
-                        window.location.href = `mailto:votre-email@exemple.com?subject=${subject}&body=${body}`;
+                        window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
                       }
                     }}
                     className={cn(
