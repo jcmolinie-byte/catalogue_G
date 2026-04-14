@@ -414,8 +414,8 @@ export default function App() {
                    
                    if (isTaking) {
                      const subject = encodeURIComponent(`Sortie Article : ${selectedItem.name}`);
-                     const body = encodeURIComponent(`Bonjour,\n\nL'article suivant a été sorti du stock :\n- Désignation : ${selectedItem.name}\n- Code SAP : ${selectedItem.sapCode}\n- Emplacement : ${selectedItem.location}\n\nMerci d'effectuer la sortie dans SAP.`);
-                     window.location.href = `mailto:votre-email@exemple.com?subject=${subject}&body=${body}`;
+                     const body = encodeURIComponent(`Bonjour,\n\nL'article suivant a été sorti du stock :\n- Désignation : ${selectedItem.name}\n- Code SAP : ${selectedItem.sapCode}\n- Emplacement : ${selectedItem.location}\n\nMerci de vérifier que la sortie SAP a été effectuée`);
+                     window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
                    }
                    setSelectedItem(null);
                 }}
