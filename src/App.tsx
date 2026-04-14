@@ -192,15 +192,20 @@ export default function App() {
       // Configure hints for better performance
       const hints = new Map();
       const formats = [
-        BarcodeFormat.CODE_128, // Priority
+        BarcodeFormat.CODE_128,
         BarcodeFormat.CODE_39,
         BarcodeFormat.CODE_93,
         BarcodeFormat.EAN_13,
-        BarcodeFormat.QR_CODE
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.ITF,
+        BarcodeFormat.QR_CODE,
+        BarcodeFormat.DATA_MATRIX
       ];
       hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
       hints.set(DecodeHintType.TRY_HARDER, true);
-      hints.set(DecodeHintType.ASSUME_GS1, true); // Often used with Code 128
+      hints.set(DecodeHintType.ASSUME_GS1, true);
 
       codeReaderRef.current = new BrowserMultiFormatReader(hints);
       
@@ -210,7 +215,8 @@ export default function App() {
         device.label.toLowerCase().includes('back') || 
         device.label.toLowerCase().includes('arrière') ||
         device.label.toLowerCase().includes('rear') ||
-        device.label.toLowerCase().includes('environment')
+        device.label.toLowerCase().includes('environment') ||
+        device.label.toLowerCase().includes('0') // Often the main camera
       );
 
       const deviceId = backCamera ? backCamera.deviceId : undefined;
@@ -220,8 +226,8 @@ export default function App() {
         video: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           facingMode: deviceId ? undefined : 'environment',
-          width: { ideal: 1280 }, // 720p is often better for real-time JS decoding than 1080p
-          height: { ideal: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30 }
         }
       };
@@ -233,11 +239,11 @@ export default function App() {
           if (result) {
             handleScanResult(result.getText());
           }
-          if (err && !(err instanceof NotFoundException)) {
-            // Ignore common "not found" errors
-          }
         }
       );
+
+      // Force scanning state to true once decoding starts
+      setIsScanning(true);
 
       // Check for flash support
       const stream = videoRef.current.srcObject as MediaStream;
@@ -609,7 +615,6 @@ export default function App() {
                   autoPlay 
                   playsInline 
                   muted
-                  onCanPlay={() => setIsScanning(true)}
                   className={cn(
                     "w-full h-full object-cover transition-opacity duration-500",
                     isScanning ? "opacity-100" : "opacity-0"
@@ -806,10 +811,10 @@ export default function App() {
                           `- Désignation : ${selectedItem.name}\n` +
                           `- Code SAP : ${selectedItem.sapCode}\n` +
                           `- Emplacement : ${selectedItem.location}\n\n` +
-                          `Merci de vérifier la sortie dans SAP.`
+                          `Merci d'effectuer la sortie dans SAP.`
                         );
                         // Remplacez l'adresse ci-dessous par l'adresse réelle
-                        window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
+                        window.location.href = `mailto:votre-email@exemple.com?subject=${subject}&body=${body}`;
                       }
                     }}
                     className={cn(
