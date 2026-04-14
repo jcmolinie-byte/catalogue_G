@@ -178,85 +178,65 @@ export default function App() {
 
   const startCamera = async () => {
     try {
-      // Wait for video element to be mounted in the DOM (up to 2 seconds)
+      // Wait for video element to be mounted
       let attempts = 0;
       while (!videoRef.current && attempts < 20) {
         await new Promise(resolve => setTimeout(resolve, 100));
         attempts++;
       }
       
-      if (!videoRef.current) {
-        throw new Error("Élément vidéo non trouvé dans le DOM.");
-      }
+      if (!videoRef.current) throw new Error("Caméra non trouvée");
 
-      // Configure hints for better performance
       const hints = new Map();
       const formats = [
         BarcodeFormat.CODE_128,
         BarcodeFormat.EAN_13,
         BarcodeFormat.CODE_39,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.EAN_8,
         BarcodeFormat.QR_CODE
       ];
       hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
       hints.set(DecodeHintType.TRY_HARDER, true);
+      hints.set(DecodeHintType.ASSUME_GS1, true);
 
       codeReaderRef.current = new BrowserMultiFormatReader(hints);
       
-      // Try to find the back camera explicitly
       const videoDevices = await codeReaderRef.current.listVideoInputDevices();
       const backCamera = videoDevices.find(device => 
-        device.label.toLowerCase().includes('back') || 
-        device.label.toLowerCase().includes('arrière') ||
-        device.label.toLowerCase().includes('rear') ||
-        device.label.toLowerCase().includes('environment')
-      );
+        /back|arrière|rear|environment/i.test(device.label)
+      ) || videoDevices[0];
 
       const deviceId = backCamera ? backCamera.deviceId : undefined;
 
-      // Start decoding with specific constraints for better quality
-      const constraints: MediaStreamConstraints = {
-        video: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          facingMode: deviceId ? undefined : 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 }
-        }
-      };
-
-      // DO NOT await this call as it runs continuously and would block the rest of the function
-      codeReaderRef.current.decodeFromConstraints(
-        constraints,
+      // Use the most stable method: decodeFromVideoDevice
+      await codeReaderRef.current.decodeFromVideoDevice(
+        deviceId,
         videoRef.current,
         (result, err) => {
           if (result) {
             handleScanResult(result.getText());
           }
         }
-      ).catch(err => {
-        console.error("Decoding error:", err);
-      });
+      );
 
-      // Give a small delay for the stream to initialize
-      setTimeout(() => {
-        if (videoRef.current && videoRef.current.srcObject) {
-          setIsScanning(true);
-          
-          // Check for flash support
-          const stream = videoRef.current.srcObject as MediaStream;
-          const track = stream.getVideoTracks()[0];
-          const capabilities = track.getCapabilities() as any;
-          if (capabilities && capabilities.torch) {
-            setHasFlash(true);
-          }
+      setIsScanning(true);
+
+      // Check for flash support
+      const stream = videoRef.current.srcObject as MediaStream;
+      if (stream) {
+        const track = stream.getVideoTracks()[0];
+        const capabilities = track.getCapabilities() as any;
+        if (capabilities && capabilities.torch) {
+          setHasFlash(true);
         }
-      }, 500);
+      }
       
     } catch (err) {
       console.error("Error accessing camera:", err);
-      const message = err instanceof Error ? err.message : "Erreur inconnue";
       if (view === 'scan') {
-        alert(`Impossible d'accéder à la caméra : ${message}. Veuillez vérifier les permissions.`);
+        alert("Erreur d'accès à la caméra. Veuillez vérifier les permissions.");
         setView('list');
       }
     }
@@ -351,6 +331,11 @@ export default function App() {
   };
 
   const handleScanResult = (code: string) => {
+    // Haptic feedback if supported
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(100);
+    }
+
     // Stop scanning immediately to prevent multiple triggers
     if (codeReaderRef.current) {
       codeReaderRef.current.reset();
