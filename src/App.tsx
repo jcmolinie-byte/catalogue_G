@@ -338,7 +338,7 @@ export default function App() {
                        `• N° Article   : ${selectedItem.sapCode}\n` +
                        `• Désignation  : ${selectedItem.name}\n` +
                        `• Emplacement  : ${selectedItem.location}\n\n` +
-                       `Merci de vérifier si la sortie SAP a été éffectuée.\n\n` +
+                       `Merci de vérifier si la sortie SAP a été effectuée.\n\n` +
                        `Cordialement`
                      );
                      window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${sujet}&body=${corps}`;
