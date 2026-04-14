@@ -331,15 +331,15 @@ export default function App() {
                    setCatalogItems(prev => prev.map(item => item.id === selectedItem.id ? { ...item, reminderActive: !item.reminderActive } : item));
                    setSelectedItem(null);
                    if (isActivating) {
-                     const sujet = encodeURIComponent(`Sortie SAP à effectuer — Article ${selectedItem.sapCode}`);
+                     const sujet = encodeURIComponent(`Sortie de stock, sortie SAP à effectuer — Article ${selectedItem.sapCode}`);
                      const corps = encodeURIComponent(
                        `Bonjour,\n\n` +
-                       `Une sortie de stock SAP est à effectuer pour l'article suivant :\n\n` +
+                       `Une sortie de stock pour l'article suivant :\n\n` +
                        `• N° Article   : ${selectedItem.sapCode}\n` +
                        `• Désignation  : ${selectedItem.name}\n` +
                        `• Emplacement  : ${selectedItem.location}\n\n` +
-                       `Merci de procéder à la sortie SAP dès que possible.\n\n` +
-                       `— Catalogue Magasin Nesle`
+                       `Merci de vérifier si la sortie SAP a été éffectuée.\n\n` +
+                       `Cordialement`
                      );
                      window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${sujet}&body=${corps}`;
                    }
