@@ -226,8 +226,8 @@ export default function App() {
         video: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           facingMode: deviceId ? undefined : 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           frameRate: { ideal: 30 }
         }
       };
@@ -239,11 +239,12 @@ export default function App() {
           if (result) {
             handleScanResult(result.getText());
           }
+          if (err && !(err instanceof NotFoundException)) {
+            // Log other errors for debugging
+            console.warn("ZXing Error:", err);
+          }
         }
       );
-
-      // Force scanning state to true once decoding starts
-      setIsScanning(true);
 
       // Check for flash support
       const stream = videoRef.current.srcObject as MediaStream;
@@ -615,6 +616,7 @@ export default function App() {
                   autoPlay 
                   playsInline 
                   muted
+                  onCanPlay={() => setIsScanning(true)}
                   className={cn(
                     "w-full h-full object-cover transition-opacity duration-500",
                     isScanning ? "opacity-100" : "opacity-0"
