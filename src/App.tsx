@@ -39,6 +39,7 @@ export default function App() {
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [itemsLimit, setItemsLimit] = useState(20);
   const [isImporting, setIsImporting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -68,8 +69,7 @@ export default function App() {
           category: String(getValue(['Catégorie', 'Category', 'Famille']) || 'Non spécifié'),
           sapCode: String(getValue(['Article', 'SAP', 'Code SAP', 'Référence']) || 'N/A'),
           location: String(getValue(['Emplacemt', 'Emplacement', 'Location', 'Zone']) || 'Non spécifié'),
-          reminderActive: false,
-          lastExitDate: getValue(['Dernière Sortie', 'Date']) ? String(getValue(['Dernière Sortie', 'Date'])) : undefined
+          reminderActive: false
         };
       });
     } catch (err) {
@@ -126,11 +126,15 @@ export default function App() {
         const scanLoop = async () => {
           if (!isActive || !videoRef.current) return;
           if (videoRef.current.readyState >= 2) {
-            const barcodes = await detector.detect(videoRef.current);
-            if (barcodes.length > 0 && isActive) {
-              isActive = false;
-              handleScanResult(barcodes[0].rawValue);
-              return;
+            try {
+              const barcodes = await detector.detect(videoRef.current);
+              if (barcodes.length > 0 && isActive) {
+                isActive = false;
+                handleScanResult(barcodes[0].rawValue);
+                return;
+              }
+            } catch (e) {
+              // Ignore detection errors
             }
           }
           scanLoopRef.current = requestAnimationFrame(scanLoop);
@@ -140,12 +144,23 @@ export default function App() {
         const { BrowserMultiFormatReader } = await import('@zxing/library');
         const reader = new BrowserMultiFormatReader();
         zxingReaderRef.current = reader;
-        reader.decodeFromVideoElement(videoRef.current, (result) => {
-          if (result && isActive) {
-            isActive = false;
-            handleScanResult(result.getText());
+        
+        const scan = async () => {
+          while (isActive && videoRef.current) {
+            try {
+              const result = await reader.decodeFromVideoElement(videoRef.current);
+              if (result && isActive) {
+                isActive = false;
+                handleScanResult(result.getText());
+                break;
+              }
+            } catch (e) {
+              // No barcode found in this frame
+            }
+            await new Promise(r => setTimeout(r, 200));
           }
-        });
+        };
+        scan();
       }
       setIsScanning(true);
     } catch (e) { 
@@ -163,9 +178,14 @@ export default function App() {
     }
     setIsScanning(false);
     setIsFlashOn(false);
+    setHasFlash(false);
   };
 
   const handleScanResult = (code: string) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(100);
+    }
+
     let cleanCode = code.trim();
     if (cleanCode.startsWith(']C1')) cleanCode = cleanCode.substring(3);
     setScanResult(`Code détecté : ${cleanCode}`);
@@ -188,6 +208,58 @@ export default function App() {
     else stopCamera();
     return () => stopCamera();
   }, [view]);
+
+  // --- ANALYSE PHOTO IA ---
+  const analyzePhoto = async () => {
+    if (!videoRef.current || isAnalyzing) return;
+
+    try {
+      setIsAnalyzing(true);
+      
+      if (videoRef.current.readyState < 2 || videoRef.current.videoWidth === 0) {
+        throw new Error("La caméra n'est pas encore prête.");
+      }
+
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 1024 / Math.max(videoRef.current.videoWidth, videoRef.current.videoHeight));
+      canvas.width = videoRef.current.videoWidth * scale;
+      canvas.height = videoRef.current.videoHeight * scale;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("Erreur capture");
+      
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+
+      const itemNames = catalogItems.slice(0, 300).map(item => `- ${item.name} (Code: ${item.sapCode})`).join('\n');
+
+      const apiResponse = await fetch('/api/analyze-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image, itemNames })
+      });
+
+      if (!apiResponse.ok) throw new Error("Erreur serveur");
+
+      const { sapCode } = await apiResponse.json();
+      
+      if (sapCode) {
+        const foundItem = catalogItems.find(item => item.sapCode === sapCode || sapCode.includes(item.sapCode));
+        if (foundItem) {
+          setSelectedItem(foundItem);
+          setView('list');
+        } else {
+          setSearchQuery(sapCode);
+          setView('list');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      alert("L'analyse a échoué.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   // --- FILTRES ---
   const categories = useMemo(() => Array.from(new Set(catalogItems.map(i => i.category))).filter(c => c !== 'Non spécifié'), [catalogItems]);
@@ -244,10 +316,10 @@ export default function App() {
 
               <div className="space-y-2">
                 {filteredItems.slice(0, itemsLimit).map(item => (
-                  <div key={item.id} onClick={() => setSelectedItem(item)} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between active:scale-[0.98] transition-transform">
+                  <div key={item.id} onClick={() => setSelectedItem(item)} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between active:scale-[0.98] transition-transform cursor-pointer group">
                     <div className="flex-1 min-w-0 pr-4">
                       <span className="text-[10px] font-bold text-blue-600 uppercase">{item.category}</span>
-                      <h3 className="font-bold text-gray-900 truncate">{item.name}</h3>
+                      <h3 className="font-bold text-gray-900 truncate group-hover:text-blue-600">{item.name}</h3>
                       <p className="text-gray-500 text-[11px] font-mono">{item.sapCode} — {item.location}</p>
                     </div>
                     <ChevronRight className="text-gray-300" size={20} />
@@ -269,11 +341,20 @@ export default function App() {
                   setIsFlashOn(!isFlashOn);
                 }} className={cn("p-2 rounded-full", isFlashOn && "bg-yellow-500 text-black")}><Zap size={24} /></button>}
               </div>
-              <div className="flex-1 relative flex items-center justify-center">
+              <div className="flex-1 relative flex items-center justify-center overflow-hidden">
                 <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
                 <div className="relative w-80 h-48 border-2 border-white/40 rounded-3xl">
                    <div className="absolute inset-0 border-2 border-blue-500 rounded-3xl animate-pulse" />
                    <motion.div animate={{ top: ['10%', '90%', '10%'] }} transition={{ duration: 2, repeat: Infinity }} className="absolute left-4 right-4 h-0.5 bg-red-500 shadow-lg" />
+                </div>
+                
+                <div className="absolute bottom-12 left-0 right-0 flex flex-col items-center gap-4 px-4">
+                  <button onClick={analyzePhoto} disabled={isAnalyzing} className="flex items-center gap-2 px-6 py-4 bg-white text-blue-600 rounded-2xl font-bold shadow-xl active:scale-95 transition-all">
+                    {isAnalyzing ? (
+                      <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    ) : <Camera size={20} />}
+                    Chercher par photo (IA)
+                  </button>
                 </div>
               </div>
               {scanResult && <div className="absolute top-24 left-6 right-6 bg-blue-600 text-white p-4 rounded-2xl text-center font-bold shadow-2xl">{scanResult}</div>}
@@ -328,7 +409,14 @@ export default function App() {
               </div>
               <button 
                 onClick={() => {
+                   const isTaking = !selectedItem.reminderActive;
                    setCatalogItems(prev => prev.map(item => item.id === selectedItem.id ? { ...item, reminderActive: !item.reminderActive } : item));
+                   
+                   if (isTaking) {
+                     const subject = encodeURIComponent(`Sortie Article : ${selectedItem.name}`);
+                     const body = encodeURIComponent(`Bonjour,\n\nL'article suivant a été sorti du stock :\n- Désignation : ${selectedItem.name}\n- Code SAP : ${selectedItem.sapCode}\n- Emplacement : ${selectedItem.location}\n\nMerci d'effectuer la sortie dans SAP.`);
+                     window.location.href = `mailto:votre-email@exemple.com?subject=${subject}&body=${body}`;
+                   }
                    setSelectedItem(null);
                 }}
                 className={cn("w-full py-4 rounded-2xl font-bold transition-all shadow-md", selectedItem.reminderActive ? "bg-orange-100 text-orange-700" : "bg-blue-600 text-white")}
@@ -343,7 +431,7 @@ export default function App() {
       <AnimatePresence>{isImporting && <div className="fixed inset-0 z-[100] bg-white/90 flex flex-col items-center justify-center"><div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" /><p className="font-bold">Mise à jour du catalogue...</p></div>}</AnimatePresence>
 
       {/* Navigation Basse */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 flex justify-around sm:hidden z-40 shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 flex justify-around sm:hidden z-40 shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
         <button onClick={() => setView('list')} className={cn("p-2 transition-colors", view === 'list' ? "text-blue-600" : "text-gray-400")}><Package /></button>
         <button onClick={() => setView('scan')} className="p-4 bg-blue-600 text-white rounded-full -mt-10 shadow-xl active:scale-90 transition-transform"><Camera size={28} /></button>
         <button onClick={() => setView('reminders')} className={cn("p-2 transition-colors", view === 'reminders' ? "text-blue-600" : "text-gray-400")}><Bell /></button>
