@@ -10,22 +10,20 @@ import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
 
 // --- UTILITAIRES DE NORMALISATION ---
-// Transforme "0,75 kW" ou "0.75kW" en "0.75kw" pour un matching universel
 const normalizeText = (text: string) => {
   return text
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Supprime accents
-    .replace(/,/g, '.') // Virgule -> Point
-    .replace(/\s+/g, '') // Supprime tous les espaces
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') 
+    .replace(/,/g, '.') 
+    .replace(/\s+/g, '') 
     .trim();
 };
 
-// Interface pour la réponse structurée de l'IA
 interface AIAnalysis {
-  type: string;       // ex: "Moteur", "Roulement"
-  brand: string;      // ex: "SEW", "SKF"
-  model: string;      // ex: "K37", "6204-2RS"
-  specs: string[];     // ex: ["0.75kW", "1400tr/min", "B3"]
+  type: string;
+  brand: string;
+  model: string;
+  specs: string[];
   description: string;
 }
 
@@ -117,7 +115,6 @@ export default function App() {
   const startCamera = async () => {
     let isActive = true;
     try {
-      // BOUCLE D'ATTENTE ORIGINALE (Anti Écran Noir)
       let attempts = 0;
       while (!videoRef.current && attempts < 10) {
         await new Promise(r => setTimeout(r, 100));
@@ -220,39 +217,22 @@ export default function App() {
     return () => stopCamera();
   }, [view]);
 
-  // --- MOTEUR DE MATCHING INTELLIGENT (PONDÉRÉ) ---
+  // --- MOTEUR DE MATCHING INTELLIGENT ---
   const scoreItem = (item: CatalogItem, ai: AIAnalysis): number => {
     const nameNormalized = normalizeText(item.name);
     let score = 0;
-
-    // 1. Match Modèle/Référence (+500 pts)
-    if (ai.model && nameNormalized.includes(normalizeText(ai.model))) {
-      score += 500;
-    }
-
-    // 2. Match Specs (+100 pts par match)
+    if (ai.model && nameNormalized.includes(normalizeText(ai.model))) score += 500;
     if (ai.specs) {
       ai.specs.forEach(spec => {
-        if (nameNormalized.includes(normalizeText(spec))) {
-          score += 100;
-        }
+        if (nameNormalized.includes(normalizeText(spec))) score += 100;
       });
     }
-
-    // 3. Match Marque (+50 pts)
-    if (ai.brand && nameNormalized.includes(normalizeText(ai.brand))) {
-      score += 50;
-    }
-
-    // 4. Match Type (+10 pts)
-    if (ai.type && nameNormalized.includes(normalizeText(ai.type))) {
-      score += 10;
-    }
-
+    if (ai.brand && nameNormalized.includes(normalizeText(ai.brand))) score += 50;
+    if (ai.type && nameNormalized.includes(normalizeText(ai.type))) score += 10;
     return score;
   };
 
-  // --- ANALYSE PHOTO IA (Groq Vision Optimisée) ---
+  // --- ANALYSE PHOTO IA (Optimisée pour éviter Erreur 400 et Modèles obsolètes) ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
@@ -266,7 +246,7 @@ export default function App() {
         localStorage.setItem('groq_api_key', groqKey);
       }
 
-      // OPTIMISATION IMAGE (Anti Erreur 400)
+      // OPTIMISATION IMAGE (Indispensable pour éviter l'erreur 400)
       const canvas = document.createElement('canvas');
       const maxWidth = 800; 
       const maxHeight = 800;
@@ -288,7 +268,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
         body: JSON.stringify({
-          model: 'llama-3.2-90b-vision-preview', // Modèle plus stable
+          model: 'llama-3.2-11b-vision-preview', // Retour au modèle stable
           max_tokens: 500,
           messages: [
             {
