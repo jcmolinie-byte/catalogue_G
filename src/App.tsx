@@ -9,19 +9,7 @@ import { CatalogItem, View } from './types';
 import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
 
-// =============================================================================
-// LISTE DES MODÈLES DE SECOURS (Fallback)
-// L'app essaiera ces modèles l'un après l'autre jusqu'à ce que l'un d'eux fonctionne
-// =============================================================================
-const VISION_MODELS = [
-  'llama-3.2-11b-vision-preview',
-  'llama-3.2-90b-vision-preview',
-  'llava-v1.5-7b-4096-preview',
-  'llama-3.2-11b-vision', // tentative sans le suffixe preview
-  'llama-3.2-90b-vision'  // tentative sans le suffixe preview
-];
-// =============================================================================
-
+// --- UTILITAIRES DE NORMALISATION ---
 const normalizeText = (text: string) => {
   return text
     .toLowerCase()
@@ -40,6 +28,7 @@ interface AIAnalysis {
 }
 
 export default function App() {
+  // --- ÉTATS ---
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>(() => {
     try {
       const saved = localStorage.getItem('nesle_catalog');
@@ -75,6 +64,7 @@ export default function App() {
   const zxingReaderRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- LOGIQUE D'IMPORT XLSX ---
   const parseExcelData = (data: any) => {
     try {
       const workbook = XLSX.read(data, { type: 'array' });
@@ -114,13 +104,14 @@ export default function App() {
       const importedItems = parseExcelData(evt.target?.result);
       if (importedItems) {
         setCatalogItems(importedItems);
-        alert(`${importedItems.length} articles chargés et sauvegardés !`);
+        alert(`${importedItems.length} articles chargés !`);
       }
       setIsImporting(false);
     };
     reader.readAsArrayBuffer(file);
   };
 
+  // --- LOGIQUE DE SCAN CODE-BARRES ---
   const startCamera = async () => {
     let isActive = true;
     try {
@@ -234,18 +225,18 @@ export default function App() {
     return score;
   };
 
-  // --- ANALYSE PHOTO IA AVEC SYSTÈME DE FALLBACK AUTOMATIQUE ---
+  // --- ANALYSE PHOTO AVEC GOOGLE GEMINI 1.5 FLASH ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
       setIsAnalyzing(true);
       setAiMatches([]);
 
-      let groqKey = localStorage.getItem('groq_api_key');
-      if (!groqKey) {
-        groqKey = prompt('Entrez votre clé API Groq :');
-        if (!groqKey) throw new Error('Clé API manquante');
-        localStorage.setItem('groq_api_key', groqKey);
+      let geminiKey = localStorage.getItem('gemini_api_key');
+      if (!geminiKey) {
+        geminiKey = prompt('Entrez votre clé API Google Gemini :');
+        if (!geminiKey) throw new Error('Clé API manquante');
+        localStorage.setItem('gemini_api_key', geminiKey);
       }
 
       const canvas = document.createElement('canvas');
@@ -263,80 +254,46 @@ export default function App() {
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Erreur capture canvas');
       ctx.drawImage(videoRef.current, 0, 0, width, height);
-      const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+      const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-      let success = false;
-      let lastError = '';
-      let finalResult: AIAnalysis | null = null;
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: `Tu es un expert en maintenance industrielle. Analyse cette image et retourne UNIQUEMENT un JSON valide :
+              {
+                "type": "catégorie",
+                "brand": "marque",
+                "model": "référence précise",
+                "specs": ["caractéristique 1", "caractéristique 2"],
+                "description": "résumé"
+              }
+              Sois très précis sur le model et les specs (ex: 0.75kW).` },
+              { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
+            ]
+          }]
+        }),
+      });
 
-      // BOUCLE DE TENTATIVES : on essaie les modèles l'un après l'autre
-      for (const model of VISION_MODELS) {
-        try {
-          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
-            body: JSON.stringify({
-              model: model,
-              max_tokens: 500,
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
-                    {
-                      type: 'text',
-                      text: `Analyse cette plaque signalétique industrielle. 
-                      Retourne UNIQUEMENT un JSON valide :
-                      {
-                        "type": "catégorie",
-                        "brand": "marque",
-                        "model": "référence précise",
-                        "specs": ["caractéristique 1", "caractéristique 2"],
-                        "description": "résumé"
-                      }
-                      Sois très précis sur le model et les specs.`
-                    },
-                  ],
-                },
-              ],
-            }),
-          });
-
-          if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.error?.message || `Erreur ${response.status}`);
-          }
-
-          const data = await response.json();
-          const content = data.choices[0]?.message?.content || '';
-          finalResult = JSON.parse(content.replace(/```json|```/g, '').trim());
-          success = true;
-          break; // On a trouvé un modèle qui fonctionne ! On sort de la boucle.
-        } catch (e: any) {
-          console.log(`Le modèle ${model} a échoué : ${e.message}`);
-          lastError = e.message;
-          // Si l'erreur est "decommissioned", on continue vers le modèle suivant
-          if (e.message.includes('decommissioned') || e.message.includes('not found')) {
-            continue;
-          } else {
-            // Si c'est une autre erreur (clé API, etc.), on s'arrête
-            throw e;
-          }
-        }
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || `Erreur Gemini ${response.status}`);
       }
 
-      if (!success || !finalResult) {
-        throw new Error(`Tous les modèles de vision ont échoué. Dernière erreur : ${lastError}`);
-      }
+      const data = await response.json();
+      const textContent = data.candidates[0]?.content?.parts[0]?.text || '';
+      const result: AIAnalysis = JSON.parse(textContent.replace(/```json|```/g, '').trim());
 
       const scored = catalogItems
-        .map(item => ({ ...item, score: scoreItem(item, finalResult) }))
+        .map(item => ({ ...item, score: scoreItem(item, result) }))
         .filter(item => item.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
 
       if (scored.length === 0) {
-        alert(`IA : ${finalResult.description}\nAucune correspondance trouvée.`);
+        alert(`IA : ${result.description}\nAucune correspondance trouvée.`);
         return;
       }
 
@@ -345,7 +302,7 @@ export default function App() {
         setView('list');
       } else {
         setAiMatches(scored);
-        setScanResult(`IA : ${finalResult.brand} ${finalResult.model}`);
+        setScanResult(`IA : ${result.brand} ${result.model}`);
       }
     } catch (err: any) {
       alert(`Analyse échouée : ${err.message}`);
