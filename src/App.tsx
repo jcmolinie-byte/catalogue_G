@@ -115,7 +115,6 @@ export default function App() {
   const startCamera = async () => {
     let isActive = true;
     try {
-      // BOUCLE D'ATTENTE ORIGINALE (Anti Écran Noir)
       let attempts = 0;
       while (!videoRef.current && attempts < 10) {
         await new Promise(r => setTimeout(r, 100));
@@ -124,11 +123,7 @@ export default function App() {
       if (!videoRef.current) return;
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'environment', 
-          width: { ideal: 1920 }, 
-          height: { ideal: 1080 } 
-        }
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
       });
 
       videoRef.current.srcObject = stream;
@@ -218,7 +213,6 @@ export default function App() {
     return () => stopCamera();
   }, [view]);
 
-  // --- MOTEUR DE MATCHING INTELLIGENT ---
   const scoreItem = (item: CatalogItem, ai: AIAnalysis): number => {
     const nameNormalized = normalizeText(item.name);
     let score = 0;
@@ -233,7 +227,7 @@ export default function App() {
     return score;
   };
 
-  // --- ANALYSE PHOTO AVEC GEMINI 1.5 FLASH (STABLE V1) ---
+  // --- ANALYSE PHOTO AVEC STRATÉGIE DE FALLBACK AUTOMATIQUE ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
@@ -264,37 +258,60 @@ export default function App() {
       ctx.drawImage(videoRef.current, 0, 0, width, height);
       const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-      // URL VERSION STABLE v1
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: `Tu es un expert en maintenance industrielle. Analyse l'image et retourne UNIQUEMENT un JSON valide sans texte autour :
-              {
-                "type": "catégorie",
-                "brand": "marque",
-                "model": "référence précise",
-                "specs": ["caractéristique 1", "caractéristique 2"],
-                "description": "résumé"
-              }
-              Sois très précis sur le model et les specs (ex: 0.75kW).` },
-              { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
-            ]
-          }]
-        }),
-      });
+      // LISTE DES TENTATIVES (Modèles et Versions)
+      const attempts = [
+        { version: 'v1beta', model: 'gemini-1.5-flash' },
+        { version: 'v1', model: 'gemini-1.5-flash' },
+        { version: 'v1beta', model: 'gemini-1.5-flash-latest' },
+      ];
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || `Erreur Gemini ${response.status}`);
+      let success = false;
+      let result: AIAnalysis | null = null;
+      let lastErrorMessage = '';
+
+      for (const attempt of attempts) {
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v${attempt.version}/models/${attempt.model}:generateContent?key=${geminiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: `Tu es un expert en maintenance industrielle. Analyse l'image et retourne UNIQUEMENT un JSON valide sans texte autour :
+                  {
+                    "type": "catégorie",
+                    "brand": "marque",
+                    "model": "référence précise",
+                    "specs": ["caractéristique 1", "caractéristique 2"],
+                    "description": "résumé"
+                  }
+                  Sois très précis sur le model et les specs (ex: 0.75kW).` },
+                  { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
+                ]
+              }]
+            }),
+          });
+
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error?.message || `Erreur ${response.status}`);
+          }
+
+          const data = await response.json();
+          let textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          textContent = textContent.replace(/```json|```/g, '').trim();
+          result = JSON.parse(textContent);
+          success = true;
+          break; // On a réussi !
+        } catch (e: any) {
+          console.log(`Tentative échouée (${attempt.version}/${attempt.model}): ${e.message}`);
+          lastErrorMessage = e.message;
+        }
       }
 
-      const data = await response.json();
-      let textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      textContent = textContent.replace(/```json|```/g, '').trim();
-      const result: AIAnalysis = JSON.parse(textContent);
+      if (!success || !result) {
+        throw new Error(`Toutes les versions de Gemini ont échoué. Dernière erreur: ${lastErrorMessage}`);
+      }
 
       const scored = catalogItems
         .map(item => ({ ...item, score: scoreItem(item, result) }))
@@ -315,14 +332,12 @@ export default function App() {
         setScanResult(`IA : ${result.brand} ${result.model}`);
       }
     } catch (err: any) {
-      console.error("Erreur detailed:", err);
       alert(`Analyse échouée : ${err.message}`);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // --- FILTRES ---
   const categories = useMemo(() => Array.from(new Set(catalogItems.map(i => i.category))).filter(c => c !== 'Non spécifié'), [catalogItems]);
   const filteredItems = useMemo(() => {
     return catalogItems.filter(item => {
