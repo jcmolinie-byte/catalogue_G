@@ -10,13 +10,18 @@ import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
 
 // =============================================================================
-// CONFIGURATION GROQ : Si tu as une erreur "decommissioned", change le modèle ici
-// Modèles possibles : 'llava-v1.5-7b-4096-preview' (très stable) 
+// LISTE DES MODÈLES DE SECOURS (Fallback)
+// L'app essaiera ces modèles l'un après l'autre jusqu'à ce que l'un d'eux fonctionne
 // =============================================================================
-const GROQ_VISION_MODEL = 'llava-v1.5-7b-4096-preview'; 
+const VISION_MODELS = [
+  'llama-3.2-11b-vision-preview',
+  'llama-3.2-90b-vision-preview',
+  'llava-v1.5-7b-4096-preview',
+  'llama-3.2-11b-vision', // tentative sans le suffixe preview
+  'llama-3.2-90b-vision'  // tentative sans le suffixe preview
+];
 // =============================================================================
 
-// --- UTILITAIRES DE NORMALISATION ---
 const normalizeText = (text: string) => {
   return text
     .toLowerCase()
@@ -35,7 +40,6 @@ interface AIAnalysis {
 }
 
 export default function App() {
-  // --- ÉTATS ---
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>(() => {
     try {
       const saved = localStorage.getItem('nesle_catalog');
@@ -71,7 +75,6 @@ export default function App() {
   const zxingReaderRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- LOGIQUE D'IMPORT XLSX ---
   const parseExcelData = (data: any) => {
     try {
       const workbook = XLSX.read(data, { type: 'array' });
@@ -118,7 +121,6 @@ export default function App() {
     reader.readAsArrayBuffer(file);
   };
 
-  // --- LOGIQUE DE SCAN CODE-BARRES ---
   const startCamera = async () => {
     let isActive = true;
     try {
@@ -130,11 +132,7 @@ export default function App() {
       if (!videoRef.current) return;
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'environment', 
-          width: { ideal: 1920 }, 
-          height: { ideal: 1080 } 
-        }
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
       });
 
       videoRef.current.srcObject = stream;
@@ -205,11 +203,9 @@ export default function App() {
     let cleanCode = code.trim();
     if (cleanCode.startsWith(']C1')) cleanCode = cleanCode.substring(3);
     setScanResult(`Code détecté : ${cleanCode}`);
-    
     const foundItem = catalogItemsRef.current.find(item =>
       String(item.sapCode).trim() === cleanCode || cleanCode.includes(String(item.sapCode).trim())
     );
-    
     setTimeout(() => {
       if (foundItem) setSelectedItem(foundItem);
       else setSearchQuery(cleanCode);
@@ -224,7 +220,6 @@ export default function App() {
     return () => stopCamera();
   }, [view]);
 
-  // --- MOTEUR DE MATCHING INTELLIGENT ---
   const scoreItem = (item: CatalogItem, ai: AIAnalysis): number => {
     const nameNormalized = normalizeText(item.name);
     let score = 0;
@@ -239,7 +234,7 @@ export default function App() {
     return score;
   };
 
-  // --- ANALYSE PHOTO IA (Optimisée) ---
+  // --- ANALYSE PHOTO IA AVEC SYSTÈME DE FALLBACK AUTOMATIQUE ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
@@ -270,53 +265,78 @@ export default function App() {
       ctx.drawImage(videoRef.current, 0, 0, width, height);
       const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
 
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
-        body: JSON.stringify({
-          model: GROQ_VISION_MODEL, 
-          max_tokens: 500,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
+      let success = false;
+      let lastError = '';
+      let finalResult: AIAnalysis | null = null;
+
+      // BOUCLE DE TENTATIVES : on essaie les modèles l'un après l'autre
+      for (const model of VISION_MODELS) {
+        try {
+          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
+            body: JSON.stringify({
+              model: model,
+              max_tokens: 500,
+              messages: [
                 {
-                  type: 'text',
-                  text: `Analyse cette plaque signalétique industrielle. 
-                  Retourne UNIQUEMENT un JSON valide :
-                  {
-                    "type": "catégorie",
-                    "brand": "marque",
-                    "model": "référence précise",
-                    "specs": ["caractéristique 1", "caractéristique 2"],
-                    "description": "résumé"
-                  }
-                  Sois très précis sur le model et les specs (ex: 0.75kW).`
+                  role: 'user',
+                  content: [
+                    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
+                    {
+                      type: 'text',
+                      text: `Analyse cette plaque signalétique industrielle. 
+                      Retourne UNIQUEMENT un JSON valide :
+                      {
+                        "type": "catégorie",
+                        "brand": "marque",
+                        "model": "référence précise",
+                        "specs": ["caractéristique 1", "caractéristique 2"],
+                        "description": "résumé"
+                      }
+                      Sois très précis sur le model et les specs.`
+                    },
+                  ],
                 },
               ],
-            },
-          ],
-        }),
-      });
+            }),
+          });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || `Erreur Groq ${response.status}`);
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error?.message || `Erreur ${response.status}`);
+          }
+
+          const data = await response.json();
+          const content = data.choices[0]?.message?.content || '';
+          finalResult = JSON.parse(content.replace(/```json|```/g, '').trim());
+          success = true;
+          break; // On a trouvé un modèle qui fonctionne ! On sort de la boucle.
+        } catch (e: any) {
+          console.log(`Le modèle ${model} a échoué : ${e.message}`);
+          lastError = e.message;
+          // Si l'erreur est "decommissioned", on continue vers le modèle suivant
+          if (e.message.includes('decommissioned') || e.message.includes('not found')) {
+            continue;
+          } else {
+            // Si c'est une autre erreur (clé API, etc.), on s'arrête
+            throw e;
+          }
+        }
       }
 
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content || '';
-      const result: AIAnalysis = JSON.parse(content.replace(/```json|```/g, '').trim());
+      if (!success || !finalResult) {
+        throw new Error(`Tous les modèles de vision ont échoué. Dernière erreur : ${lastError}`);
+      }
 
       const scored = catalogItems
-        .map(item => ({ ...item, score: scoreItem(item, result) }))
+        .map(item => ({ ...item, score: scoreItem(item, finalResult) }))
         .filter(item => item.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
 
       if (scored.length === 0) {
-        alert(`IA : ${result.description}\nAucune correspondance trouvée.`);
+        alert(`IA : ${finalResult.description}\nAucune correspondance trouvée.`);
         return;
       }
 
@@ -325,7 +345,7 @@ export default function App() {
         setView('list');
       } else {
         setAiMatches(scored);
-        setScanResult(`IA : ${result.brand} ${result.model}`);
+        setScanResult(`IA : ${finalResult.brand} ${finalResult.model}`);
       }
     } catch (err: any) {
       alert(`Analyse échouée : ${err.message}`);
@@ -334,7 +354,6 @@ export default function App() {
     }
   };
 
-  // --- FILTRES ---
   const categories = useMemo(() => Array.from(new Set(catalogItems.map(i => i.category))).filter(c => c !== 'Non spécifié'), [catalogItems]);
   const filteredItems = useMemo(() => {
     return catalogItems.filter(item => {
