@@ -209,7 +209,19 @@ export default function App() {
     return () => stopCamera();
   }, [view]);
 
-  // --- ANALYSE PHOTO IA (Groq Vision direct + matching catalogue) ---
+  // --- MATCHING LOCAL : score une désignation SAP contre une liste de mots-clés ---
+  const scoreItem = (designation: string, keywords: string[]): number => {
+    const d = designation.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    let score = 0;
+    for (const kw of keywords) {
+      const k = kw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      if (!k) continue;
+      if (d.includes(k)) score += k.length > 3 ? 20 : 10; // mots courts valent moins
+    }
+    return score;
+  };
+
+  // --- ANALYSE PHOTO IA (Groq Vision extrait les mots-clés, matching 100% local) ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
 
@@ -229,7 +241,7 @@ export default function App() {
         throw new Error("La caméra n'est pas encore prête.");
       }
 
-      // Capture l'image depuis la caméra
+      // Capture l'image
       const canvas = document.createElement('canvas');
       const scale = Math.min(1, 1024 / Math.max(videoRef.current.videoWidth, videoRef.current.videoHeight));
       canvas.width = videoRef.current.videoWidth * scale;
@@ -239,13 +251,7 @@ export default function App() {
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-      // Prépare la liste des articles du catalogue (max 300)
-      const itemNames = catalogItems
-        .slice(0, 300)
-        .map(item => `${item.sapCode}|${item.name}`)
-        .join('\n');
-
-      // Appel direct Groq Vision (Llama 4 Scout)
+      // Groq Vision : extraction mots-clés uniquement, PAS de matching SAP
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -254,7 +260,7 @@ export default function App() {
         },
         body: JSON.stringify({
           model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-          max_tokens: 500,
+          max_tokens: 300,
           messages: [
             {
               role: 'user',
@@ -265,17 +271,15 @@ export default function App() {
                 },
                 {
                   type: 'text',
-                  text: `Tu es un assistant magasin industriel. Réponds UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après, sans backticks, sans explication.
+                  text: `Tu es un expert en équipements industriels. Analyse cette photo et réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks.
 
-Analyse la photo : si tu vois une plaque signalétique, extrais tout le texte lisible (marque, modèle, puissance, référence, etc.). Si tu vois une pièce, décris sa nature et ses caractéristiques visibles.
+Si tu vois une plaque signalétique : extrais exactement le texte lisible (marque, modèle, puissance en kW, type, référence, etc.).
+Si tu vois une pièce : identifie sa nature et ses caractéristiques (type, dimensions, marquages).
 
-Catalogue SAP disponible (format CODE_SAP|DESIGNATION) :
-${itemNames}
+Retourne ce JSON exact :
+{"description":"description complète lisible","keywords":["mot1","mot2","0.75kw","SEW","K37"]}
 
-Retourne exactement ce JSON et rien d'autre :
-{"description":"texte OCR ou description de la pièce","matches":[{"sapCode":"CODE","name":"DESIGNATION","score":95}]}
-
-5 meilleures correspondances max, triées par score décroissant. Si aucune correspondance : matches vide.`,
+Les keywords doivent être les termes techniques précis tels qu'ils apparaissent sur la plaque ou la pièce, notamment les valeurs numériques exactes (ex: "0.75kW", "1400tr/min", "B3", "IE3"). Maximum 15 keywords.`,
                 },
               ],
             },
@@ -285,7 +289,6 @@ Retourne exactement ce JSON et rien d'autre :
 
       if (!response.ok) {
         const err = await response.json();
-        // Si clé invalide, on la supprime pour la redemander la prochaine fois
         if (response.status === 401) localStorage.removeItem('groq_api_key');
         throw new Error(err.error?.message || `Erreur Groq ${response.status}`);
       }
@@ -295,34 +298,34 @@ Retourne exactement ce JSON et rien d'autre :
       const clean = content.replace(/```json|```/g, '').trim();
       const result = JSON.parse(clean);
 
-      if (result.matches && result.matches.length > 0) {
-        // Enrichit les matches avec les données complètes du catalogue
-        const enriched = result.matches
-          .map((m: any) => {
-            const found = catalogItems.find(
-              item => String(item.sapCode).trim() === String(m.sapCode).trim()
-            );
-            return found ? { ...found, score: m.score } : null;
-          })
-          .filter(Boolean) as (CatalogItem & { score: number })[];
+      const keywords: string[] = result.keywords || [];
+      const description: string = result.description || '';
 
-        if (enriched.length === 1) {
-          // Un seul résultat → ouvre directement la fiche
-          setSelectedItem(enriched[0]);
-          setView('list');
-        } else if (enriched.length > 1) {
-          // Plusieurs résultats → affiche le modal de sélection
-          setAiMatches(enriched);
-          setScanResult(`IA : "${result.description}"`);
-        } else {
-          // Matches renvoyés par l'IA mais aucun trouvé dans le catalogue local
-          setScanResult(`IA : "${result.description}" — Aucun article SAP trouvé`);
-          setSearchQuery(result.description);
-          setView('list');
-        }
-      } else {
-        alert(`Pièce identifiée : "${result.description}" mais aucune correspondance dans le catalogue.`);
+      if (keywords.length === 0) {
+        alert(`Pièce identifiée : "${description}" — Aucun mot-clé extrait pour la recherche.`);
+        return;
       }
+
+      // Matching 100% local : on score chaque article du catalogue
+      const scored = catalogItems
+        .map(item => ({ ...item, score: scoreItem(item.name, keywords) }))
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5) as (CatalogItem & { score: number })[];
+
+      if (scored.length === 0) {
+        alert(`Identifié : "${description}"\nMots-clés : ${keywords.join(', ')}\n\nAucune correspondance dans le catalogue.`);
+        return;
+      }
+
+      if (scored.length === 1) {
+        setSelectedItem(scored[0]);
+        setView('list');
+      } else {
+        setAiMatches(scored);
+        setScanResult(`IA : "${description}"`);
+      }
+
     } catch (err: any) {
       console.error(err);
       alert(`L'analyse a échoué : ${err.message}`);
