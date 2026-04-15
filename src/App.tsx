@@ -117,14 +117,13 @@ export default function App() {
   const startCamera = async () => {
     let isActive = true;
     try {
-      // --- RÉINTÉGRATION DE TA BOUCLE D'ATTENTE ORIGINALE (Anti Écran Noir) ---
+      // BOUCLE D'ATTENTE ORIGINALE (Anti Écran Noir)
       let attempts = 0;
       while (!videoRef.current && attempts < 10) {
         await new Promise(r => setTimeout(r, 100));
         attempts++;
       }
       if (!videoRef.current) return;
-      // ----------------------------------------------------------------------
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
@@ -226,12 +225,12 @@ export default function App() {
     const nameNormalized = normalizeText(item.name);
     let score = 0;
 
-    // 1. Match Modèle/Référence (Priorité Absolue : +500 pts)
+    // 1. Match Modèle/Référence (+500 pts)
     if (ai.model && nameNormalized.includes(normalizeText(ai.model))) {
       score += 500;
     }
 
-    // 2. Match Caractéristiques Techniques (Ex: 0.75kW, 24V) (+100 pts par match)
+    // 2. Match Specs (+100 pts par match)
     if (ai.specs) {
       ai.specs.forEach(spec => {
         if (nameNormalized.includes(normalizeText(spec))) {
@@ -240,12 +239,12 @@ export default function App() {
       });
     }
 
-    // 3. Match Marque (ex: SEW, SKF) (+50 pts)
+    // 3. Match Marque (+50 pts)
     if (ai.brand && nameNormalized.includes(normalizeText(ai.brand))) {
       score += 50;
     }
 
-    // 4. Match Type de pièce (ex: Moteur, Vanne) (+10 pts)
+    // 4. Match Type (+10 pts)
     if (ai.type && nameNormalized.includes(normalizeText(ai.type))) {
       score += 10;
     }
@@ -253,7 +252,7 @@ export default function App() {
     return score;
   };
 
-  // --- ANALYSE PHOTO IA (Groq Vision) ---
+  // --- ANALYSE PHOTO IA (Groq Vision Optimisée) ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
@@ -267,20 +266,29 @@ export default function App() {
         localStorage.setItem('groq_api_key', groqKey);
       }
 
+      // OPTIMISATION IMAGE (Anti Erreur 400)
       const canvas = document.createElement('canvas');
-      const scale = Math.min(1, 1024 / Math.max(videoRef.current.videoWidth, videoRef.current.videoHeight));
-      canvas.width = videoRef.current.videoWidth * scale;
-      canvas.height = videoRef.current.videoHeight * scale;
+      const maxWidth = 800; 
+      const maxHeight = 800;
+      let width = videoRef.current.videoWidth;
+      let height = videoRef.current.videoHeight;
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width *= ratio;
+        height *= ratio;
+      }
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Erreur capture canvas');
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+      ctx.drawImage(videoRef.current, 0, 0, width, height);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
 
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
         body: JSON.stringify({
-          model: 'llama-3.2-11b-vision-preview',
+          model: 'llama-3.2-90b-vision-preview', // Modèle plus stable
           max_tokens: 500,
           messages: [
             {
@@ -289,16 +297,16 @@ export default function App() {
                 { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
                 {
                   type: 'text',
-                  text: `Tu es un expert en maintenance industrielle. Analyse cette image (plaque signalétique ou pièce).
+                  text: `Analyse cette plaque signalétique industrielle. 
                   Retourne UNIQUEMENT un JSON valide :
                   {
-                    "type": "type de pièce (ex: Moteur, Roulement, Capteur)",
-                    "brand": "marque (ex: SEW, SKF, Siemens)",
-                    "model": "référence précise, numéro de modèle ou série",
-                    "specs": ["caractéristiques techniques : kW, Volts, Dimensions, RPM, etc."],
-                    "description": "résumé court de la pièce"
+                    "type": "catégorie",
+                    "brand": "marque",
+                    "model": "référence précise",
+                    "specs": ["caractéristique 1", "caractéristique 2"],
+                    "description": "résumé"
                   }
-                  Sois extrêmement précis sur le 'model' et les 'specs'. Si tu vois 0,75kW, écris "0.75kW".`
+                  Sois très précis sur le model et les specs (ex: 0.75kW).`
                 },
               ],
             },
@@ -306,9 +314,14 @@ export default function App() {
         }),
       });
 
-      if (!response.ok) throw new Error(`Erreur API Groq ${response.status}`);
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || `Erreur Groq ${response.status}`);
+      }
+
       const data = await response.json();
-      const result: AIAnalysis = JSON.parse(data.choices[0]?.message?.content?.replace(/```json|```/g, '').trim());
+      const content = data.choices[0]?.message?.content || '';
+      const result: AIAnalysis = JSON.parse(content.replace(/```json|```/g, '').trim());
 
       const scored = catalogItems
         .map(item => ({ ...item, score: scoreItem(item, result) }))
@@ -317,7 +330,7 @@ export default function App() {
         .slice(0, 5);
 
       if (scored.length === 0) {
-        alert(`IA : ${result.description}\nAucune correspondance trouvée dans le catalogue.`);
+        alert(`IA : ${result.description}\nAucune correspondance trouvée.`);
         return;
       }
 
