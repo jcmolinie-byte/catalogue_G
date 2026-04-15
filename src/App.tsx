@@ -117,12 +117,26 @@ export default function App() {
   const startCamera = async () => {
     let isActive = true;
     try {
+      // --- RÉINTÉGRATION DE TA BOUCLE D'ATTENTE ORIGINALE (Anti Écran Noir) ---
+      let attempts = 0;
+      while (!videoRef.current && attempts < 10) {
+        await new Promise(r => setTimeout(r, 100));
+        attempts++;
+      }
       if (!videoRef.current) return;
+      // ----------------------------------------------------------------------
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+        video: { 
+          facingMode: 'environment', 
+          width: { ideal: 1920 }, 
+          height: { ideal: 1080 } 
+        }
       });
+
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
+
       const track = stream.getVideoTracks()[0];
       const caps = track.getCapabilities() as any;
       if (caps.torch) setHasFlash(true);
@@ -188,9 +202,11 @@ export default function App() {
     let cleanCode = code.trim();
     if (cleanCode.startsWith(']C1')) cleanCode = cleanCode.substring(3);
     setScanResult(`Code détecté : ${cleanCode}`);
+    
     const foundItem = catalogItemsRef.current.find(item =>
       String(item.sapCode).trim() === cleanCode || cleanCode.includes(String(item.sapCode).trim())
     );
+    
     setTimeout(() => {
       if (foundItem) setSelectedItem(foundItem);
       else setSearchQuery(cleanCode);
@@ -264,7 +280,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
         body: JSON.stringify({
-          model: 'llama-3.2-11b-vision-preview', // Utilisation du modèle Vision récent
+          model: 'llama-3.2-11b-vision-preview',
           max_tokens: 500,
           messages: [
             {
@@ -294,7 +310,6 @@ export default function App() {
       const data = await response.json();
       const result: AIAnalysis = JSON.parse(data.choices[0]?.message?.content?.replace(/```json|```/g, '').trim());
 
-      // MATCHING LOCAL PONDÉRÉ
       const scored = catalogItems
         .map(item => ({ ...item, score: scoreItem(item, result) }))
         .filter(item => item.score > 0)
@@ -401,7 +416,13 @@ export default function App() {
               </div>
 
               <div className="flex-1 relative flex items-center justify-center overflow-hidden">
-                <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
+                <video 
+                  ref={videoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className="absolute inset-0 w-full h-full object-cover" 
+                />
                 <div className="relative w-80 h-48 border-2 border-white/40 rounded-3xl">
                   <div className="absolute inset-0 border-2 border-blue-500 rounded-3xl animate-pulse" />
                   <motion.div animate={{ top: ['10%', '90%', '10%'] }} transition={{ duration: 2, repeat: Infinity }} className="absolute left-4 right-4 h-0.5 bg-red-500 shadow-lg" />
