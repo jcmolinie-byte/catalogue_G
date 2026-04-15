@@ -194,11 +194,9 @@ export default function App() {
     let cleanCode = code.trim();
     if (cleanCode.startsWith(']C1')) cleanCode = cleanCode.substring(3);
     setScanResult(`Code détecté : ${cleanCode}`);
-    
     const foundItem = catalogItemsRef.current.find(item =>
       String(item.sapCode).trim() === cleanCode || cleanCode.includes(String(item.sapCode).trim())
     );
-    
     setTimeout(() => {
       if (foundItem) setSelectedItem(foundItem);
       else setSearchQuery(cleanCode);
@@ -227,7 +225,7 @@ export default function App() {
     return score;
   };
 
-  // --- ANALYSE PHOTO AVEC STRATÉGIE DE FALLBACK AUTOMATIQUE ---
+  // --- ANALYSE PHOTO AVEC HACK CORS (SIMPLE REQUEST) ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
@@ -242,76 +240,46 @@ export default function App() {
       }
 
       const canvas = document.createElement('canvas');
-      const maxWidth = 800; 
-      const maxHeight = 800;
+      const maxSize = 600; 
       let width = videoRef.current.videoWidth;
       let height = videoRef.current.videoHeight;
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
         width *= ratio;
         height *= ratio;
       }
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Erreur capture canvas');
+      if (!ctx) throw new Error('Erreur canvas');
       ctx.drawImage(videoRef.current, 0, 0, width, height);
-      const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+      const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
 
-      // LISTE DES TENTATIVES (Modèles et Versions)
-      const attempts = [
-        { version: 'v1beta', model: 'gemini-1.5-flash' },
-        { version: 'v1', model: 'gemini-1.5-flash' },
-        { version: 'v1beta', model: 'gemini-1.5-flash-latest' },
-      ];
+      // HACK CORS : On utilise text/plain pour éviter le "Preflight request" du navigateur
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'text/plain;charset=utf-8' 
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: `Analyse cette image et retourne UNIQUEMENT un JSON : {"type":"catégorie","brand":"marque","model":"référence","specs":["spec1"],"description":"résumé"}` },
+              { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
+            ]
+          }]
+        }),
+      });
 
-      let success = false;
-      let result: AIAnalysis | null = null;
-      let lastErrorMessage = '';
-
-      for (const attempt of attempts) {
-        try {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v${attempt.version}/models/${attempt.model}:generateContent?key=${geminiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: `Tu es un expert en maintenance industrielle. Analyse l'image et retourne UNIQUEMENT un JSON valide sans texte autour :
-                  {
-                    "type": "catégorie",
-                    "brand": "marque",
-                    "model": "référence précise",
-                    "specs": ["caractéristique 1", "caractéristique 2"],
-                    "description": "résumé"
-                  }
-                  Sois très précis sur le model et les specs (ex: 0.75kW).` },
-                  { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
-                ]
-              }]
-            }),
-          });
-
-          if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.error?.message || `Erreur ${response.status}`);
-          }
-
-          const data = await response.json();
-          let textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          textContent = textContent.replace(/```json|```/g, '').trim();
-          result = JSON.parse(textContent);
-          success = true;
-          break; // On a réussi !
-        } catch (e: any) {
-          console.log(`Tentative échouée (${attempt.version}/${attempt.model}): ${e.message}`);
-          lastErrorMessage = e.message;
-        }
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || `Erreur ${response.status}`);
       }
 
-      if (!success || !result) {
-        throw new Error(`Toutes les versions de Gemini ont échoué. Dernière erreur: ${lastErrorMessage}`);
-      }
+      const data = await response.json();
+      let textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      textContent = textContent.replace(/```json|```/g, '').trim();
+      const result: AIAnalysis = JSON.parse(textContent);
 
       const scored = catalogItems
         .map(item => ({ ...item, score: scoreItem(item, result) }))
@@ -320,7 +288,7 @@ export default function App() {
         .slice(0, 5);
 
       if (scored.length === 0) {
-        alert(`IA : ${result.description}\nAucune correspondance trouvée.`);
+        alert(`IA : ${result.description}\nAucune correspondance.`);
         return;
       }
 
@@ -332,7 +300,12 @@ export default function App() {
         setScanResult(`IA : ${result.brand} ${result.model}`);
       }
     } catch (err: any) {
-      alert(`Analyse échouée : ${err.message}`);
+      console.error(err);
+      if (err.message === 'Failed to fetch') {
+        alert("Le navigateur a encore bloqué la requête. Essayez d'ouvrir l'application dans un onglet de 'Navigation Privée' (cela désactive certaines extensions qui peuvent bloquer l'API).");
+      } else {
+        alert(`Analyse échouée : ${err.message}`);
+      }
     } finally {
       setIsAnalyzing(false);
     }
