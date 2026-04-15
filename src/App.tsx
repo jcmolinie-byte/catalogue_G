@@ -115,6 +115,7 @@ export default function App() {
   const startCamera = async () => {
     let isActive = true;
     try {
+      // BOUCLE D'ATTENTE ORIGINALE (Anti Écran Noir)
       let attempts = 0;
       while (!videoRef.current && attempts < 10) {
         await new Promise(r => setTimeout(r, 100));
@@ -123,7 +124,11 @@ export default function App() {
       if (!videoRef.current) return;
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+        video: { 
+          facingMode: 'environment', 
+          width: { ideal: 1920 }, 
+          height: { ideal: 1080 } 
+        }
       });
 
       videoRef.current.srcObject = stream;
@@ -194,9 +199,11 @@ export default function App() {
     let cleanCode = code.trim();
     if (cleanCode.startsWith(']C1')) cleanCode = cleanCode.substring(3);
     setScanResult(`Code détecté : ${cleanCode}`);
+    
     const foundItem = catalogItemsRef.current.find(item =>
       String(item.sapCode).trim() === cleanCode || cleanCode.includes(String(item.sapCode).trim())
     );
+    
     setTimeout(() => {
       if (foundItem) setSelectedItem(foundItem);
       else setSearchQuery(cleanCode);
@@ -211,6 +218,7 @@ export default function App() {
     return () => stopCamera();
   }, [view]);
 
+  // --- MOTEUR DE MATCHING INTELLIGENT ---
   const scoreItem = (item: CatalogItem, ai: AIAnalysis): number => {
     const nameNormalized = normalizeText(item.name);
     let score = 0;
@@ -225,7 +233,7 @@ export default function App() {
     return score;
   };
 
-  // --- ANALYSE PHOTO AVEC GOOGLE GEMINI 1.5 FLASH ---
+  // --- ANALYSE PHOTO AVEC GEMINI 1.5 FLASH (STABLE V1) ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
@@ -256,13 +264,14 @@ export default function App() {
       ctx.drawImage(videoRef.current, 0, 0, width, height);
       const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+      // URL VERSION STABLE v1
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{
             parts: [
-              { text: `Tu es un expert en maintenance industrielle. Analyse cette image et retourne UNIQUEMENT un JSON valide :
+              { text: `Tu es un expert en maintenance industrielle. Analyse l'image et retourne UNIQUEMENT un JSON valide sans texte autour :
               {
                 "type": "catégorie",
                 "brand": "marque",
@@ -283,8 +292,9 @@ export default function App() {
       }
 
       const data = await response.json();
-      const textContent = data.candidates[0]?.content?.parts[0]?.text || '';
-      const result: AIAnalysis = JSON.parse(textContent.replace(/```json|```/g, '').trim());
+      let textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      textContent = textContent.replace(/```json|```/g, '').trim();
+      const result: AIAnalysis = JSON.parse(textContent);
 
       const scored = catalogItems
         .map(item => ({ ...item, score: scoreItem(item, result) }))
@@ -305,12 +315,14 @@ export default function App() {
         setScanResult(`IA : ${result.brand} ${result.model}`);
       }
     } catch (err: any) {
+      console.error("Erreur detailed:", err);
       alert(`Analyse échouée : ${err.message}`);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  // --- FILTRES ---
   const categories = useMemo(() => Array.from(new Set(catalogItems.map(i => i.category))).filter(c => c !== 'Non spécifié'), [catalogItems]);
   const filteredItems = useMemo(() => {
     return catalogItems.filter(item => {
