@@ -9,6 +9,13 @@ import { CatalogItem, View } from './types';
 import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
 
+// =============================================================================
+// CONFIGURATION GROQ : Si tu as une erreur "decommissioned", change le modèle ici
+// Modèles possibles : 'llava-v1.5-7b-4096-preview' (très stable) 
+// =============================================================================
+const GROQ_VISION_MODEL = 'llava-v1.5-7b-4096-preview'; 
+// =============================================================================
+
 // --- UTILITAIRES DE NORMALISATION ---
 const normalizeText = (text: string) => {
   return text
@@ -232,7 +239,7 @@ export default function App() {
     return score;
   };
 
-  // --- ANALYSE PHOTO IA (Optimisée pour éviter Erreur 400 et Modèles obsolètes) ---
+  // --- ANALYSE PHOTO IA (Optimisée) ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
     try {
@@ -246,7 +253,6 @@ export default function App() {
         localStorage.setItem('groq_api_key', groqKey);
       }
 
-      // OPTIMISATION IMAGE (Indispensable pour éviter l'erreur 400)
       const canvas = document.createElement('canvas');
       const maxWidth = 800; 
       const maxHeight = 800;
@@ -268,7 +274,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
         body: JSON.stringify({
-          model: 'llama-3.2-11b-vision-preview', // Retour au modèle stable
+          model: GROQ_VISION_MODEL, 
           max_tokens: 500,
           messages: [
             {
