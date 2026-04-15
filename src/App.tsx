@@ -9,8 +9,28 @@ import { CatalogItem, View } from './types';
 import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
 
+// --- UTILITAIRES DE NORMALISATION ---
+// Transforme "0,75 kW" ou "0.75kW" en "0.75kw" pour un matching universel
+const normalizeText = (text: string) => {
+  return text
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Supprime accents
+    .replace(/,/g, '.') // Virgule -> Point
+    .replace(/\s+/g, '') // Supprime tous les espaces
+    .trim();
+};
+
+// Interface pour la réponse structurée de l'IA
+interface AIAnalysis {
+  type: string;       // ex: "Moteur", "Roulement"
+  brand: string;      // ex: "SEW", "SKF"
+  model: string;      // ex: "K37", "6204-2RS"
+  specs: string[];     // ex: ["0.75kW", "1400tr/min", "B3"]
+  description: string;
+}
+
 export default function App() {
-  // --- MÉMOIRE PERSISTANTE (LocalStorage) ---
+  // --- ÉTATS ---
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>(() => {
     try {
       const saved = localStorage.getItem('nesle_catalog');
@@ -22,7 +42,6 @@ export default function App() {
 
   const catalogItemsRef = useRef(catalogItems);
 
-  // Sauvegarde automatique à chaque modification (Import ou Rappel)
   useEffect(() => {
     catalogItemsRef.current = catalogItems;
     localStorage.setItem('nesle_catalog', JSON.stringify(catalogItems));
@@ -87,35 +106,23 @@ export default function App() {
       const importedItems = parseExcelData(evt.target?.result);
       if (importedItems) {
         setCatalogItems(importedItems);
-        alert(`${importedItems.length} articles chargés et sauvegardés dans l'appareil !`);
+        alert(`${importedItems.length} articles chargés et sauvegardés !`);
       }
       setIsImporting(false);
     };
     reader.readAsArrayBuffer(file);
   };
 
-  // --- LOGIQUE DE SCAN ASYNCHRONE ---
+  // --- LOGIQUE DE SCAN CODE-BARRES ---
   const startCamera = async () => {
     let isActive = true;
     try {
-      let attempts = 0;
-      while (!videoRef.current && attempts < 10) {
-        await new Promise(r => setTimeout(r, 100));
-        attempts++;
-      }
       if (!videoRef.current) return;
-
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        }
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
       });
-
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
-
       const track = stream.getVideoTracks()[0];
       const caps = track.getCapabilities() as any;
       if (caps.torch) setHasFlash(true);
@@ -133,9 +140,7 @@ export default function App() {
                 handleScanResult(barcodes[0].rawValue);
                 return;
               }
-            } catch (e) {
-              // Ignore detection errors
-            }
+            } catch (e) {}
           }
           scanLoopRef.current = requestAnimationFrame(scanLoop);
         };
@@ -144,7 +149,6 @@ export default function App() {
         const { BrowserMultiFormatReader } = await import('@zxing/library');
         const reader = new BrowserMultiFormatReader();
         zxingReaderRef.current = reader;
-
         const scan = async () => {
           while (isActive && videoRef.current) {
             try {
@@ -154,9 +158,7 @@ export default function App() {
                 handleScanResult(result.getText());
                 break;
               }
-            } catch (e) {
-              // No barcode found in this frame
-            }
+            } catch (e) {}
             await new Promise(r => setTimeout(r, 200));
           }
         };
@@ -182,19 +184,13 @@ export default function App() {
   };
 
   const handleScanResult = (code: string) => {
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(100);
-    }
-
+    if (navigator.vibrate) navigator.vibrate(100);
     let cleanCode = code.trim();
     if (cleanCode.startsWith(']C1')) cleanCode = cleanCode.substring(3);
     setScanResult(`Code détecté : ${cleanCode}`);
-
     const foundItem = catalogItemsRef.current.find(item =>
-      String(item.sapCode).trim() === cleanCode ||
-      cleanCode.includes(String(item.sapCode).trim())
+      String(item.sapCode).trim() === cleanCode || cleanCode.includes(String(item.sapCode).trim())
     );
-
     setTimeout(() => {
       if (foundItem) setSelectedItem(foundItem);
       else setSearchQuery(cleanCode);
@@ -209,27 +205,45 @@ export default function App() {
     return () => stopCamera();
   }, [view]);
 
-  // --- MATCHING LOCAL : score une désignation SAP contre une liste de mots-clés ---
-  const scoreItem = (designation: string, keywords: string[]): number => {
-    const d = designation.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // --- MOTEUR DE MATCHING INTELLIGENT (PONDÉRÉ) ---
+  const scoreItem = (item: CatalogItem, ai: AIAnalysis): number => {
+    const nameNormalized = normalizeText(item.name);
     let score = 0;
-    for (const kw of keywords) {
-      const k = kw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-      if (!k) continue;
-      if (d.includes(k)) score += k.length > 3 ? 20 : 10; // mots courts valent moins
+
+    // 1. Match Modèle/Référence (Priorité Absolue : +500 pts)
+    if (ai.model && nameNormalized.includes(normalizeText(ai.model))) {
+      score += 500;
     }
+
+    // 2. Match Caractéristiques Techniques (Ex: 0.75kW, 24V) (+100 pts par match)
+    if (ai.specs) {
+      ai.specs.forEach(spec => {
+        if (nameNormalized.includes(normalizeText(spec))) {
+          score += 100;
+        }
+      });
+    }
+
+    // 3. Match Marque (ex: SEW, SKF) (+50 pts)
+    if (ai.brand && nameNormalized.includes(normalizeText(ai.brand))) {
+      score += 50;
+    }
+
+    // 4. Match Type de pièce (ex: Moteur, Vanne) (+10 pts)
+    if (ai.type && nameNormalized.includes(normalizeText(ai.type))) {
+      score += 10;
+    }
+
     return score;
   };
 
-  // --- ANALYSE PHOTO IA (Groq Vision extrait les mots-clés, matching 100% local) ---
+  // --- ANALYSE PHOTO IA (Groq Vision) ---
   const analyzePhoto = async () => {
     if (!videoRef.current || isAnalyzing) return;
-
     try {
       setIsAnalyzing(true);
       setAiMatches([]);
 
-      // Récupère ou demande la clé Groq
       let groqKey = localStorage.getItem('groq_api_key');
       if (!groqKey) {
         groqKey = prompt('Entrez votre clé API Groq :');
@@ -237,11 +251,6 @@ export default function App() {
         localStorage.setItem('groq_api_key', groqKey);
       }
 
-      if (videoRef.current.readyState < 2 || videoRef.current.videoWidth === 0) {
-        throw new Error("La caméra n'est pas encore prête.");
-      }
-
-      // Capture l'image
       const canvas = document.createElement('canvas');
       const scale = Math.min(1, 1024 / Math.max(videoRef.current.videoWidth, videoRef.current.videoHeight));
       canvas.width = videoRef.current.videoWidth * scale;
@@ -251,35 +260,29 @@ export default function App() {
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-      // Groq Vision : extraction mots-clés uniquement, PAS de matching SAP
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqKey}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-          max_tokens: 300,
+          model: 'llama-3.2-11b-vision-preview', // Utilisation du modèle Vision récent
+          max_tokens: 500,
           messages: [
             {
               role: 'user',
               content: [
-                {
-                  type: 'image_url',
-                  image_url: { url: `data:image/jpeg;base64,${base64Image}` },
-                },
+                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
                 {
                   type: 'text',
-                  text: `Tu es un expert en équipements industriels. Analyse cette photo et réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks.
-
-Si tu vois une plaque signalétique : extrais exactement le texte lisible (marque, modèle, puissance en kW, type, référence, etc.).
-Si tu vois une pièce : identifie sa nature et ses caractéristiques (type, dimensions, marquages).
-
-Retourne ce JSON exact :
-{"description":"description complète lisible","keywords":["mot1","mot2","0.75kw","SEW","K37"]}
-
-Les keywords doivent être les termes techniques précis tels qu'ils apparaissent sur la plaque ou la pièce, notamment les valeurs numériques exactes (ex: "0.75kW", "1400tr/min", "B3", "IE3"). Maximum 15 keywords.`,
+                  text: `Tu es un expert en maintenance industrielle. Analyse cette image (plaque signalétique ou pièce).
+                  Retourne UNIQUEMENT un JSON valide :
+                  {
+                    "type": "type de pièce (ex: Moteur, Roulement, Capteur)",
+                    "brand": "marque (ex: SEW, SKF, Siemens)",
+                    "model": "référence précise, numéro de modèle ou série",
+                    "specs": ["caractéristiques techniques : kW, Volts, Dimensions, RPM, etc."],
+                    "description": "résumé court de la pièce"
+                  }
+                  Sois extrêmement précis sur le 'model' et les 'specs'. Si tu vois 0,75kW, écris "0.75kW".`
                 },
               ],
             },
@@ -287,48 +290,31 @@ Les keywords doivent être les termes techniques précis tels qu'ils apparaissen
         }),
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        if (response.status === 401) localStorage.removeItem('groq_api_key');
-        throw new Error(err.error?.message || `Erreur Groq ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`Erreur API Groq ${response.status}`);
       const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || '';
-      const clean = content.replace(/```json|```/g, '').trim();
-      const result = JSON.parse(clean);
+      const result: AIAnalysis = JSON.parse(data.choices[0]?.message?.content?.replace(/```json|```/g, '').trim());
 
-      const keywords: string[] = result.keywords || [];
-      const description: string = result.description || '';
-
-      if (keywords.length === 0) {
-        alert(`Pièce identifiée : "${description}" — Aucun mot-clé extrait pour la recherche.`);
-        return;
-      }
-
-      // Matching 100% local : on score chaque article du catalogue
+      // MATCHING LOCAL PONDÉRÉ
       const scored = catalogItems
-        .map(item => ({ ...item, score: scoreItem(item.name, keywords) }))
+        .map(item => ({ ...item, score: scoreItem(item, result) }))
         .filter(item => item.score > 0)
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5) as (CatalogItem & { score: number })[];
+        .slice(0, 5);
 
       if (scored.length === 0) {
-        alert(`Identifié : "${description}"\nMots-clés : ${keywords.join(', ')}\n\nAucune correspondance dans le catalogue.`);
+        alert(`IA : ${result.description}\nAucune correspondance trouvée dans le catalogue.`);
         return;
       }
 
-      if (scored.length === 1) {
+      if (scored.length === 1 && scored[0].score >= 500) {
         setSelectedItem(scored[0]);
         setView('list');
       } else {
         setAiMatches(scored);
-        setScanResult(`IA : "${description}"`);
+        setScanResult(`IA : ${result.brand} ${result.model}`);
       }
-
     } catch (err: any) {
-      console.error(err);
-      alert(`L'analyse a échoué : ${err.message}`);
+      alert(`Analyse échouée : ${err.message}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -351,7 +337,6 @@ Les keywords doivent être les termes techniques précis tels qu'ils apparaissen
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A]">
       <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx" onChange={handleFileUpload} />
 
-      {/* Header */}
       <header className="sticky top-0 z-50 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg"><Package size={24} /></div>
@@ -407,7 +392,7 @@ Les keywords doivent être les termes techniques précis tels qu'ils apparaissen
             <motion.div key="scan" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[60] bg-black flex flex-col">
               <div className="p-4 flex items-center justify-between text-white z-10">
                 <button onClick={() => { setAiMatches([]); setScanResult(null); setView('list'); }} className="p-2"><ArrowLeft size={24} /></button>
-                <h2 className="font-bold">Scanner Code SAP</h2>
+                <h2 className="font-bold">Analyse Technique</h2>
                 {hasFlash && <button onClick={() => {
                   const track = (videoRef.current?.srcObject as MediaStream).getVideoTracks()[0];
                   track.applyConstraints({ advanced: [{ torch: !isFlashOn }] } as any);
@@ -424,50 +409,34 @@ Les keywords doivent être les termes techniques précis tels qu'ils apparaissen
 
                 <div className="absolute bottom-12 left-0 right-0 flex flex-col items-center gap-4 px-4">
                   <button onClick={analyzePhoto} disabled={isAnalyzing} className="flex items-center gap-2 px-6 py-4 bg-white text-blue-600 rounded-2xl font-bold shadow-xl active:scale-95 transition-all">
-                    {isAnalyzing ? (
-                      <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                    ) : <Camera size={20} />}
-                    {isAnalyzing ? 'Analyse en cours...' : 'Chercher par photo (IA)'}
+                    {isAnalyzing ? <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /> : <Camera size={20} />}
+                    {isAnalyzing ? 'Analyse IA en cours...' : 'Identifier la pièce (IA)'}
                   </button>
                 </div>
               </div>
 
-              {/* Bandeau résultat scan code-barres */}
               {scanResult && aiMatches.length === 0 && (
-                <div className="absolute top-24 left-6 right-6 bg-blue-600 text-white p-4 rounded-2xl text-center font-bold shadow-2xl">
-                  {scanResult}
-                </div>
+                <div className="absolute top-24 left-6 right-6 bg-blue-600 text-white p-4 rounded-2xl text-center font-bold shadow-2xl">{scanResult}</div>
               )}
 
-              {/* Modal résultats IA — plusieurs correspondances */}
               {aiMatches.length > 1 && (
                 <div className="absolute inset-0 bg-black/70 flex items-end z-10">
                   <div className="w-full bg-white rounded-t-3xl p-5 max-h-[75vh] overflow-y-auto">
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1 pr-3">
-                        <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">Reconnaissance IA + OCR</p>
-                        <p className="text-sm text-gray-700 leading-snug">{scanResult?.replace('IA : ', '')}</p>
+                        <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-1">Suggestions IA</p>
+                        <p className="text-sm text-gray-700 leading-snug">{scanResult}</p>
                       </div>
                       <button onClick={() => { setAiMatches([]); setScanResult(null); }} className="p-2 bg-gray-100 rounded-full flex-shrink-0"><X size={18} /></button>
                     </div>
-                    <p className="text-xs text-gray-400 mb-3 border-t pt-3">{aiMatches.length} articles SAP correspondants :</p>
                     <div className="space-y-2">
                       {aiMatches.map(item => (
-                        <button
-                          key={item.id}
-                          onClick={() => {
-                            setAiMatches([]);
-                            setScanResult(null);
-                            setSelectedItem(item);
-                            setView('list');
-                          }}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-left flex items-center justify-between active:scale-[0.98] transition-transform"
-                        >
+                        <button key={item.id} onClick={() => { setAiMatches([]); setScanResult(null); setSelectedItem(item); setView('list'); }} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-left flex items-center justify-between active:scale-[0.98] transition-transform">
                           <div className="flex-1 min-w-0 pr-3">
                             <p className="font-bold text-gray-900 truncate">{item.name}</p>
                             <p className="text-[11px] font-mono text-gray-500">{item.sapCode} — {item.location}</p>
                           </div>
-                          <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full whitespace-nowrap">{item.score}%</span>
+                          <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">{item.score} pts</span>
                         </button>
                       ))}
                     </div>
@@ -482,17 +451,12 @@ Les keywords doivent être les termes techniques précis tels qu'ils apparaissen
               <button onClick={() => setView('list')} className="flex items-center gap-2 text-blue-600 font-bold"><ArrowLeft size={20} /> Retour</button>
               <h2 className="text-xl font-bold">Mes Rappels SAP ({reminders.length})</h2>
               {reminders.length === 0 ? (
-                <div className="bg-white p-8 rounded-3xl text-center border border-dashed border-gray-300">
-                  <p className="text-gray-500">Aucun rappel en attente.</p>
-                </div>
+                <div className="bg-white p-8 rounded-3xl text-center border border-dashed border-gray-300"><p className="text-gray-500">Aucun rappel en attente.</p></div>
               ) : (
                 <div className="space-y-2">
                   {reminders.map(item => (
                     <div key={item.id} className="bg-white p-4 rounded-xl border-l-4 border-l-orange-500 flex justify-between items-center shadow-sm">
-                      <div>
-                        <p className="font-bold">{item.name}</p>
-                        <p className="text-xs font-mono text-gray-500">SAP: {item.sapCode}</p>
-                      </div>
+                      <div><p className="font-bold">{item.name}</p><p className="text-xs font-mono text-gray-500">SAP: {item.sapCode}</p></div>
                       <button onClick={() => setCatalogItems(prev => prev.map(i => i.id === item.id ? { ...i, reminderActive: false } : i))} className="p-2 text-red-500"><X /></button>
                     </div>
                   ))}
@@ -503,56 +467,50 @@ Les keywords doivent être les termes techniques précis tels qu'ils apparaissen
         </AnimatePresence>
       </main>
 
-      {/* Modal Détails article */}
-      <AnimatePresence>
-        {selectedItem && (
-          <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedItem(null)} />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="relative w-full max-w-lg bg-white rounded-3xl overflow-hidden p-6 shadow-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold">{selectedItem.name}</h2>
-                <button onClick={() => setSelectedItem(null)} className="p-2 bg-gray-100 rounded-full"><X size={20} /></button>
+      {selectedItem && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedItem(null)} />
+          <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="relative w-full max-w-lg bg-white rounded-3xl overflow-hidden p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold">{selectedItem.name}</h2>
+              <button onClick={() => setSelectedItem(null)} className="p-2 bg-gray-100 rounded-full"><X size={20} /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Code SAP</p>
+                <p className="font-mono font-bold text-blue-600 text-lg">{selectedItem.sapCode}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3 mb-6">
-                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Code SAP</p>
-                  <p className="font-mono font-bold text-blue-600 text-lg">{selectedItem.sapCode}</p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Emplacement</p>
-                  <p className="font-bold text-lg">{selectedItem.location}</p>
-                </div>
+              <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Emplacement</p>
+                <p className="font-bold text-lg">{selectedItem.location}</p>
               </div>
-              <button
-                onClick={() => {
-                  const isTaking = !selectedItem.reminderActive;
-                  setCatalogItems(prev => prev.map(item => item.id === selectedItem.id ? { ...item, reminderActive: !item.reminderActive } : item));
-                  if (isTaking) {
-                    const subject = encodeURIComponent(`Sortie Article : ${selectedItem.name}`);
-                    const body = encodeURIComponent(`Bonjour,\n\nL'article suivant a été sorti du stock :\n- Désignation : ${selectedItem.name}\n- Code SAP : ${selectedItem.sapCode}\n- Emplacement : ${selectedItem.location}\n\nMerci de vérifier que la sortie SAP a été effectuée`);
-                    window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
-                  }
-                  setSelectedItem(null);
-                }}
-                className={cn("w-full py-4 rounded-2xl font-bold transition-all shadow-md", selectedItem.reminderActive ? "bg-orange-100 text-orange-700" : "bg-blue-600 text-white")}
-              >
-                {selectedItem.reminderActive ? "Annuler le rappel" : "Prendre l'article (Rappel SAP)"}
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+            </div>
+            <button
+              onClick={() => {
+                const isTaking = !selectedItem.reminderActive;
+                setCatalogItems(prev => prev.map(item => item.id === selectedItem.id ? { ...item, reminderActive: !item.reminderActive } : item));
+                if (isTaking) {
+                  const subject = encodeURIComponent(`Sortie Article : ${selectedItem.name}`);
+                  const body = encodeURIComponent(`Bonjour,\n\nL'article suivant a été sorti du stock :\n- Désignation : ${selectedItem.name}\n- Code SAP : ${selectedItem.sapCode}\n- Emplacement : ${selectedItem.location}\n\nMerci de vérifier que la sortie SAP a été effectuée`);
+                  window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
+                }
+                setSelectedItem(null);
+              }}
+              className={cn("w-full py-4 rounded-2xl font-bold transition-all shadow-md", selectedItem.reminderActive ? "bg-orange-100 text-orange-700" : "bg-blue-600 text-white")}
+            >
+              {selectedItem.reminderActive ? "Annuler le rappel" : "Prendre l'article (Rappel SAP)"}
+            </button>
+          </motion.div>
+        </div>
+      )}
 
-      <AnimatePresence>
-        {isImporting && (
-          <div className="fixed inset-0 z-[100] bg-white/90 flex flex-col items-center justify-center">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="font-bold">Mise à jour du catalogue...</p>
-          </div>
-        )}
-      </AnimatePresence>
+      {isImporting && (
+        <div className="fixed inset-0 z-[100] bg-white/90 flex flex-col items-center justify-center">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="font-bold">Mise à jour du catalogue...</p>
+        </div>
+      )}
 
-      {/* Navigation Basse */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 flex justify-around sm:hidden z-40 shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
         <button onClick={() => setView('list')} className={cn("p-2 transition-colors", view === 'list' ? "text-blue-600" : "text-gray-400")}><Package /></button>
         <button onClick={() => setView('scan')} className="p-4 bg-blue-600 text-white rounded-full -mt-10 shadow-xl active:scale-90 transition-transform"><Camera size={28} /></button>
