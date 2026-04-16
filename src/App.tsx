@@ -11,11 +11,12 @@ import { cn } from './lib/utils';
 
 // --- UTILITAIRES DE NORMALISATION ---
 const normalizeText = (text: string) => {
-  return text
+  if (!text) return '';
+  return String(text)
     .toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') 
     .replace(/,/g, '.') 
-    .replace(/\s+/g, '') 
+    .replace(/[^a-z0-9.]/g, '') 
     .trim();
 };
 
@@ -214,14 +215,29 @@ export default function App() {
   const scoreItem = (item: CatalogItem, ai: AIAnalysis): number => {
     const nameNormalized = normalizeText(item.name);
     let score = 0;
-    if (ai.model && nameNormalized.includes(normalizeText(ai.model))) score += 500;
-    if (ai.specs) {
+
+    const matchTerm = (term: string | undefined, points: number) => {
+      if (!term) return 0;
+      const normalized = normalizeText(term);
+      if (normalized.length < 2) return 0;
+      if (['na', 'nc', 'nr', 'n/a', 'non', 'null', 'none', 'inconnu'].includes(normalized)) return 0;
+      return nameNormalized.includes(normalized) ? points : 0;
+    };
+
+    score += matchTerm(ai.model, 500);
+    score += matchTerm(ai.brand, 50);
+    score += matchTerm(ai.type, 10);
+
+    if (Array.isArray(ai.specs)) {
       ai.specs.forEach(spec => {
-        if (nameNormalized.includes(normalizeText(spec))) score += 100;
+        // Extraire seulement les informations pertinentes (retirer les mots comme "puissance", on laisse l'IA faire mais au cas où)
+        const parts = String(spec).split(/\s+/);
+        parts.forEach(part => {
+          score += matchTerm(part, 100);
+        });
       });
     }
-    if (ai.brand && nameNormalized.includes(normalizeText(ai.brand))) score += 50;
-    if (ai.type && nameNormalized.includes(normalizeText(ai.type))) score += 10;
+
     return score;
   };
 
@@ -276,7 +292,7 @@ export default function App() {
               {
                 type: 'text',
                 text: `Lis attentivement cette plaque technique industrielle et extrais toutes les informations visibles. Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans balises markdown :
-{"type":"type de pièce en français (ex: moteur electrique, reducteur, pompe)","brand":"marque fabricant","model":"reference modele exact","specs":["puissance ex 0.75kW","tension ex 230V 400V","courant ex 1.8A","vitesse ex 1400rpm","frequence ex 50Hz","IP ex IP55","autres specs importantes"],"description":"resume court en français de la plaque"}`
+{"type":"type de pièce (ex: moteur, reducteur, pompe)","brand":"marque fabricant","model":"reference modele exact (sans la marque)","specs":["liste des valeurs techniques avec leur unité (ex: '0.75kW', '230V', '1400rpm', '50Hz', 'IP55'). Ne mets QUE les valeurs et unités, SANS mots texte comme 'puissance' ou 'tension'."],"description":"resume court en français de la plaque"}`
               }
             ]
           }]
