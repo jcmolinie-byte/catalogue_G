@@ -1120,7 +1120,7 @@ export default function App() {
                   </div>
                   <button 
                     onClick={() => {
-                      const lines = cartItems.map(i => `- ${i.cartQuantity}x ${i.name} (SAP: ${i.sapCode} - Emplacement: ${i.location})`).join('\n');
+                      const lines = cartItems.map(i => `- ${i.cartQuantity}x ${i.name} (SAP: ${i.sapCode} - Emplacement : ${i.location})`).join('\n');
                       const subject = encodeURIComponent('Sortie Magasin - Liste d\'articles');
                       const body = encodeURIComponent(`Bonjour,\n\nVoici la liste des articles à sortir du stock ce jour :\n\n${lines}\n\nMerci,\nRégulation Magasin (via App)`);
                       window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
