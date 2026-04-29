@@ -1122,7 +1122,7 @@ export default function App() {
                     onClick={() => {
                       const lines = cartItems.map(i => `- ${i.cartQuantity}x ${i.name} (SAP: ${i.sapCode} - Zône: ${i.location})`).join('\n');
                       const subject = encodeURIComponent('Sortie Magasin - Liste d\'articles');
-                      const body = encodeURIComponent(`Bonjour,\n\nListe des articles sorti du stock ce jour :\n\n${lines}\n\nMerci,\nvérifier si la sortie est effecuée`);
+                      const body = encodeURIComponent(`Bonjour,\n\nListe des articles sorti du stock ce jour :\n\n${lines}\n\nMerci,\nVérifier si la sortie est effectuée`);
                       window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
                     }}
                     className="w-full py-4 mt-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-xl flex items-center justify-center gap-2 transition-colors active:scale-95"
