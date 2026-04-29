@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Search, Camera, Bell, Package, MapPin, Barcode, ChevronRight, 
   X, ArrowLeft, AlertCircle, CheckCircle2, Clock, FileUp, Zap, Mic,
-  LayoutGrid, ScanLine, Home, StickyNote, Trash2, Plus, Pencil, ImageIcon, Share2
+  LayoutGrid, ScanLine, Home, StickyNote, Trash2, Plus, Pencil, ImageIcon, Share2, ShoppingCart, Minus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -357,7 +357,7 @@ export default function App() {
           category: String(getValue(['Catégorie', 'Category', 'Famille']) || 'Non spécifié'),
           sapCode: String(getValue(['Article', 'SAP', 'Code SAP', 'Référence']) || 'N/A'),
           location: String(getValue(['Emplacemt', 'Emplacement', 'Location', 'Zone']) || 'Non spécifié'),
-          reminderActive: false
+          cartQuantity: 0
         };
       });
     } catch (err) {
@@ -768,7 +768,7 @@ export default function App() {
     });
   }, [searchQuery, locationQuery, selectedCategory, catalogItems]);
 
-  const reminders = useMemo(() => catalogItems.filter(item => item.reminderActive), [catalogItems]);
+  const cartItems = useMemo(() => catalogItems.filter(item => item.cartQuantity && item.cartQuantity > 0), [catalogItems]);
 
   return (
     <div className="min-h-screen bg-slate-900 text-white transition-colors duration-300 dark">
@@ -873,20 +873,20 @@ export default function App() {
                   </div>
                 </motion.button>
 
-                {/* Ligne 3 : Rappels SAP | Importer XLSX */}
+                {/* Ligne 3 : Panier */}
                 <motion.button
                   whileHover={{ scale: 1.04, y: -2 }}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => setView('reminders')}
+                  onClick={() => setView('cart')}
                   className="group relative bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 flex flex-col items-center gap-3 shadow-sm hover:shadow-xl hover:border-orange-300 transition-all duration-300 overflow-hidden"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 to-orange-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   <div className="relative w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-500 group-hover:bg-orange-500 group-hover:text-white transition-colors duration-300 shadow-sm">
-                    <Bell size={26} />
+                    <ShoppingCart size={26} />
                   </div>
                   <div className="relative text-center">
-                    <p className="font-bold text-gray-900 dark:text-white text-sm">Rappels</p>
-                    <p className="text-[11px] text-gray-400 dark:text-gray-400 mt-0.5">{reminders.length} alertes</p>
+                    <p className="font-bold text-gray-900 dark:text-white text-sm">Panier</p>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-400 mt-0.5">{cartItems.length} article{cartItems.length !== 1 ? 's' : ''}</p>
                   </div>
                 </motion.button>
 
@@ -1092,21 +1092,44 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === 'reminders' && (
-            <motion.div key="reminders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {view === 'cart' && (
+            <motion.div key="cart" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
               <button onClick={() => setView('home')} className="flex items-center gap-2 text-blue-600 font-bold"><ArrowLeft size={20} /> Retour</button>
-              <h2 className="text-xl font-bold dark:text-white">Mes Rappels SAP ({reminders.length})</h2>
-              {reminders.length === 0 ? (
-                <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl text-center border border-dashed border-gray-300 dark:border-slate-700"><p className="text-gray-500">Aucun rappel en attente.</p></div>
+              <h2 className="text-xl font-bold dark:text-white">Mon Panier ({cartItems.length})</h2>
+              {cartItems.length === 0 ? (
+                <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl text-center border border-dashed border-gray-300 dark:border-slate-700"><p className="text-gray-500">Votre panier est vide.</p></div>
               ) : (
-                <div className="space-y-2">
-                  {reminders.map(item => (
-                    <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border-l-4 border-l-orange-500 flex justify-between items-center shadow-sm">
-                      <div><p className="font-bold dark:text-white">{item.name}</p><p className="text-xs font-mono text-gray-500">SAP: {item.sapCode}</p></div>
-                      <button onClick={() => setCatalogItems(prev => prev.map(i => i.id === item.id ? { ...i, reminderActive: false } : i))} className="p-2 text-red-500"><X /></button>
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <div className="space-y-2">
+                    {cartItems.map(item => (
+                      <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl flex flex-col gap-3 shadow-sm border border-gray-100 dark:border-slate-700">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1 pr-4">
+                            <p className="font-bold dark:text-white leading-tight">{item.name}</p>
+                            <p className="text-xs font-mono text-gray-500 mt-1">SAP: {item.sapCode} — {item.location}</p>
+                          </div>
+                          <button onClick={() => setCatalogItems(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: 0 } : i))} className="p-2 text-red-500 bg-red-50 rounded-lg hover:bg-red-100"><X size={18} /></button>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => setCatalogItems(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: Math.max(0, (i.cartQuantity || 0) - 1) } : i))} className="p-2 bg-gray-100 rounded-full dark:bg-slate-700 hover:bg-gray-200 active:scale-95"><Minus size={16} /></button>
+                          <span className="font-bold w-4 text-center dark:text-white">{item.cartQuantity}</span>
+                          <button onClick={() => setCatalogItems(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: (i.cartQuantity || 0) + 1 } : i))} className="p-2 bg-gray-100 rounded-full dark:bg-slate-700 hover:bg-gray-200 active:scale-95"><Plus size={16} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={() => {
+                      const lines = cartItems.map(i => `- ${i.cartQuantity}x ${i.name} (SAP: ${i.sapCode} - Zône: ${i.location})`).join('\n');
+                      const subject = encodeURIComponent('Sortie Magasin - Liste d\'articles');
+                      const body = encodeURIComponent(`Bonjour,\n\nVoici la liste des articles à sortir du stock ce jour :\n\n${lines}\n\nMerci,\nRégulation Magasin (via App)`);
+                      window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
+                    }}
+                    className="w-full py-4 mt-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-xl flex items-center justify-center gap-2 transition-colors active:scale-95"
+                  >
+                    <CheckCircle2 size={20} /> Envoyer le panier par Email
+                  </button>
+                </>
               )}
             </motion.div>
           )}
@@ -1250,18 +1273,13 @@ export default function App() {
             </div>
             <button
               onClick={() => {
-                const isTaking = !selectedItem.reminderActive;
-                setCatalogItems(prev => prev.map(item => item.id === selectedItem.id ? { ...item, reminderActive: !item.reminderActive } : item));
-                if (isTaking) {
-                  const subject = encodeURIComponent(`Sortie Article : ${selectedItem.name}`);
-                  const body = encodeURIComponent(`Bonjour,\n\nL'article suivant a été sorti du stock :\n- Désignation : ${selectedItem.name}\n- Code SAP : ${selectedItem.sapCode}\n- Emplacement : ${selectedItem.location}\n\nMerci de vérifier que la sortie SAP a été effectuée`);
-                  window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
-                }
+                const isInCart = selectedItem.cartQuantity && selectedItem.cartQuantity > 0;
+                setCatalogItems(prev => prev.map(item => item.id === selectedItem.id ? { ...item, cartQuantity: isInCart ? 0 : 1 } : item));
                 setSelectedItem(null);
               }}
-              className={cn("w-full py-4 rounded-2xl font-bold transition-all shadow-md", selectedItem.reminderActive ? "bg-orange-100 text-orange-700" : "bg-blue-600 text-white")}
+              className={cn("w-full py-4 rounded-2xl font-bold transition-all shadow-md active:scale-[0.98]", (selectedItem.cartQuantity && selectedItem.cartQuantity > 0) ? "bg-orange-100 text-orange-700 hover:bg-orange-200" : "bg-blue-600 text-white hover:bg-blue-700")}
             >
-              {selectedItem.reminderActive ? "Annuler le rappel" : "Prendre l'article (Rappel SAP)"}
+              {(selectedItem.cartQuantity && selectedItem.cartQuantity > 0) ? "Retirer du panier" : "Prélever article ?"}
             </button>
           </motion.div>
         </div>
@@ -1278,7 +1296,7 @@ export default function App() {
         <button onClick={() => setView('home')} className={cn("p-2 transition-colors", view === 'home' ? "text-blue-600" : "text-gray-400 dark:text-gray-500")}><Home /></button>
         <button onClick={() => setView('list')} className={cn("p-2 transition-colors", view === 'list' ? "text-blue-600" : "text-gray-400 dark:text-gray-500")}><Search /></button>
         <button onClick={() => setView('scan')} className="p-4 bg-blue-600 text-white rounded-full -mt-10 shadow-xl active:scale-90 transition-transform"><Camera size={28} /></button>
-        <button onClick={() => setView('reminders')} className={cn("p-2 transition-colors", view === 'reminders' ? "text-blue-600" : "text-gray-400 dark:text-gray-500")}><Bell /></button>
+        <button onClick={() => setView('cart')} className={cn("p-2 transition-colors", view === 'cart' ? "text-blue-600" : "text-gray-400 dark:text-gray-500")}><ShoppingCart /></button>
       </div>
     </div>
   );
