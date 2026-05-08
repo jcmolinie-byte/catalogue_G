@@ -418,13 +418,13 @@ export default function App() {
               return foundKey ? row[foundKey] : null;
             };
 
-            // Définition des colonnes à chercher selon l'onglet
-            let keysToSearch = ['Equipement', 'équipement', 'poste technique', 'Sous_Zone'];
+            // Définition des colonnes à chercher (on ignore désormais Sous_Zone)
+            let keysToSearch = ['Equipement', 'équipement', 'poste technique'];
             
-            if (sheetName === 'Données') {
+            if (sheetName === 'Index_Equipement') {
+              // Si l'onglet Index_Equipement ne contient que des Sous_Zone, on cherche quand même Equipement
+              // S'il n'y en a pas, la ligne sera ignorée plus bas.
               keysToSearch = ['Equipement', 'équipement', 'poste technique'];
-            } else if (sheetName === 'Index_Equipement') {
-              keysToSearch = ['Sous_Zone'];
             }
 
             const equipmentId = String(getValue(keysToSearch) || '');
