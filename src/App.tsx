@@ -5,14 +5,12 @@ import {
   LayoutGrid, ScanLine, Home, StickyNote, Trash2, Plus, Pencil, ImageIcon, Share2, ShoppingCart, Minus, Wrench, Settings, Sun, Moon, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import * as XLSX from 'xlsx';
+import { supabase } from './lib/supabase';
 import { CatalogItem, View, EquipmentItem } from './types';
 import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
 import AgentChat from './AgentChat';
 
-const CATALOG_URL = 'https://raw.githubusercontent.com/jcmolinie-byte/catalogue_G/main/public/catalogue.xlsx';
-const EQUIPMENTS_URL = 'https://raw.githubusercontent.com/jcmolinie-byte/catalogue_G/main/public/catalogue_postes_techniques_nesle.xlsx';
 
 // --- UTILITAIRES DE NORMALISATION ---
 const normalizeText = (text: string) => {
@@ -513,28 +511,41 @@ export default function App() {
     try {
       setIsSyncing(true);
 
-      // Synchro des équipements depuis GitHub
+      // Sync équipements depuis Supabase
       try {
-        const eqResp = await fetch(EQUIPMENTS_URL);
-        if (eqResp.ok) {
-          const eqData = await eqResp.arrayBuffer();
-          const importedEquips = parseEquipmentsExcelData(eqData);
-          if (importedEquips) setEquipments(importedEquips);
+        const { data: equipsData, error: equipsError } = await supabase
+          .from('equipments')
+          .select('*');
+        if (!equipsError && equipsData) {
+          setEquipments(equipsData.map(e => ({
+            id: e.id,
+            equipment: e.equipment || '',
+            equipmentLabel: e.equipment_label || '',
+            sapCode: e.sap_code || '',
+            designation: e.designation || '',
+            quantity: e.quantity || 0,
+          })));
         }
-      } catch (err) { console.error("Erreur sync Equipements GitHub:", err); }
+      } catch (err) { console.error('Erreur sync Equipements Supabase:', err); }
 
-      const response = await fetch(CATALOG_URL);
-      if (!response.ok) throw new Error('Erreur lors du téléchargement du catalogue');
-      
-      const data = await response.arrayBuffer();
-      const importedItems = parseExcelData(data);
-      
-      if (importedItems) {
-        setCatalogItems(importedItems);
-        console.log(`${importedItems.length} articles synchronisés depuis GitHub !`);
+      // Sync catalogue depuis Supabase
+      const { data: catalogData, error } = await supabase
+        .from('catalog_items')
+        .select('*');
+      if (error) throw error;
+
+      if (catalogData) {
+        setCatalogItems(catalogData.map(item => ({
+          id: item.id,
+          name: item.name || '',
+          category: item.category || '',
+          sapCode: item.sap_code || '',
+          location: item.location || '',
+          cartQuantity: 0,
+        })));
       }
     } catch (err) {
-      console.error("Erreur sync GitHub:", err);
+      console.error('Erreur sync Supabase:', err);
     } finally {
       setIsSyncing(false);
     }
