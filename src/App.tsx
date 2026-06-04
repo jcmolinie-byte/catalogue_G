@@ -5,12 +5,14 @@ import {
   LayoutGrid, ScanLine, Home, StickyNote, Trash2, Plus, Pencil, ImageIcon, Share2, ShoppingCart, Minus, Wrench, Settings, Sun, Moon, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { supabase } from './lib/supabase';
+import * as XLSX from 'xlsx';
 import { CatalogItem, View, EquipmentItem } from './types';
 import { MOCK_CATALOG } from './constants';
 import { cn } from './lib/utils';
 import AgentChat from './AgentChat';
 
+const CATALOG_URL = 'https://raw.githubusercontent.com/jcmolinie-byte/catalogue_G/main/public/catalogue.xlsx';
+const EQUIPMENTS_URL = 'https://raw.githubusercontent.com/jcmolinie-byte/catalogue_G/main/public/catalogue_postes_techniques_nesle.xlsx';
 
 // --- UTILITAIRES DE NORMALISATION ---
 const normalizeText = (text: string) => {
@@ -34,23 +36,23 @@ const HighlightedText = ({ text, highlight }: { text: string; highlight: string 
   
   const textNorm = strip(text);
   
-  // Tolérance singulier/pluriel : on cherche la racine ET la forme exacte
+  // TolÃ©rance singulier/pluriel : on cherche la racine ET la forme exacte
   const wordsNorm = words.map(w => {
     let cleaned = strip(w);
-    // Si le mot fait plus de 3 lettres et finit par 's' ou 'x', on enlève la terminaison
+    // Si le mot fait plus de 3 lettres et finit par 's' ou 'x', on enlÃ¨ve la terminaison
     if (cleaned.length > 3 && (cleaned.endsWith('s') || cleaned.endsWith('x'))) {
       return cleaned.slice(0, -1);
     }
     return cleaned;
   });
   
-  // Trouver tous les segments à surligner
+  // Trouver tous les segments Ã  surligner
   let matches: {start: number, end: number}[] = [];
   wordsNorm.forEach(rootWord => {
     // On cherche la racine dans le texte (trouvera "chaussure" ET "chaussures")
     let pos = textNorm.indexOf(rootWord);
     while (pos !== -1) {
-      // Déterminer la fin réelle du mot dans le texte (inclure s/x final éventuel)
+      // DÃ©terminer la fin rÃ©elle du mot dans le texte (inclure s/x final Ã©ventuel)
       let endPos = pos + rootWord.length;
       if (endPos < textNorm.length && (textNorm[endPos] === 's' || textNorm[endPos] === 'x')) {
         endPos++;
@@ -78,7 +80,7 @@ const HighlightedText = ({ text, highlight }: { text: string; highlight: string 
     merged.push(current);
   }
 
-  // Construire le résultat final
+  // Construire le rÃ©sultat final
   const result: (string | JSX.Element)[] = [];
   let lastPos = 0;
   merged.forEach((m, i) => {
@@ -86,7 +88,7 @@ const HighlightedText = ({ text, highlight }: { text: string; highlight: string 
     if (m.start > lastPos) {
       result.push(text.substring(lastPos, m.start));
     }
-    // Texte surligné (on prend le texte ORIGINAL avec les accents)
+    // Texte surlignÃ© (on prend le texte ORIGINAL avec les accents)
     result.push(
       <span key={i} className="text-yellow-400 font-extrabold bg-yellow-400/10 rounded-sm px-0.5">
         {text.substring(m.start, m.end)}
@@ -122,7 +124,7 @@ interface Note {
 }
 
 export default function App() {
-  // --- ÉTATS ---
+  // --- ÃTATS ---
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>(() => {
     try {
       const saved = localStorage.getItem('nesle_catalog');
@@ -139,7 +141,7 @@ export default function App() {
     try {
       localStorage.setItem('nesle_catalog', JSON.stringify(catalogItems));
     } catch (e) {
-      console.warn('Quota localStorage dépassé pour le catalogue');
+      console.warn('Quota localStorage dÃ©passÃ© pour le catalogue');
     }
   }, [catalogItems]);
 
@@ -156,7 +158,7 @@ export default function App() {
     try {
       localStorage.setItem('nesle_equipments', JSON.stringify(equipments));
     } catch (e) {
-      console.warn('Quota localStorage dépassé pour les équipements');
+      console.warn('Quota localStorage dÃ©passÃ© pour les Ã©quipements');
     }
   }, [equipments]);
 
@@ -181,7 +183,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme');
-    return saved ? saved === 'dark' : true; // Sombre par défaut
+    return saved ? saved === 'dark' : true; // Sombre par dÃ©faut
   });
 
   useEffect(() => {
@@ -191,7 +193,7 @@ export default function App() {
   const handleRequestRestock = async (item: CatalogItem) => {
     try {
       setIsSendingRestock(true);
-      const emailBody = `Demande de réapprovisionnement pour l'article :\n\nDésignation : ${item.name}\nCode SAP : ${item.sapCode}\nEmplacement : ${item.location}`;
+      const emailBody = `Demande de rÃ©approvisionnement pour l'article :\n\nDÃ©signation : ${item.name}\nCode SAP : ${item.sapCode}\nEmplacement : ${item.location}`;
       
       const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
@@ -208,15 +210,15 @@ export default function App() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`EmailJS a refusé (${response.status}) : ${errorText}`);
+        throw new Error(`EmailJS a refusÃ© (${response.status}) : ${errorText}`);
       }
       
-      setToastMessage('Demande de réapprovisionnement envoyée avec succès au magasin !');
+      setToastMessage('Demande de rÃ©approvisionnement envoyÃ©e avec succÃ¨s au magasin !');
       setTimeout(() => setToastMessage(null), 3000);
-      setSelectedItem(null); // On ferme la fenêtre après succès
+      setSelectedItem(null); // On ferme la fenÃªtre aprÃ¨s succÃ¨s
     } catch (err: any) {
       console.error(err);
-      alert(`Erreur d'envoi :\n${err.message}\n\nVérifiez votre console F12 pour plus de détails.`);
+      alert(`Erreur d'envoi :\n${err.message}\n\nVÃ©rifiez votre console F12 pour plus de dÃ©tails.`);
     } finally {
       setIsSendingRestock(false);
     }
@@ -296,13 +298,13 @@ export default function App() {
     const SpeechGrammarList = (window as any).SpeechGrammarList || (window as any).webkitSpeechGrammarList;
     
     if (!SpeechRecognition) {
-      alert("La reconnaissance vocale n'est pas supportée.");
+      alert("La reconnaissance vocale n'est pas supportÃ©e.");
       return;
     }
 
     const recognition = new SpeechRecognition();
     
-    // Grammaire ultra-simplifiée pour éviter la latence
+    // Grammaire ultra-simplifiÃ©e pour Ã©viter la latence
     if (SpeechGrammarList && catalogItemsRef.current.length < 500) {
       try {
         const words = Array.from(new Set(catalogItemsRef.current.map(i => i.name.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '')))).slice(0, 50);
@@ -315,7 +317,7 @@ export default function App() {
 
     recognitionRef.current = recognition;
     recognition.lang = 'fr-FR';
-    recognition.continuous = true; // On écoute en continu pour ne pas rater les petits mots
+    recognition.continuous = true; // On Ã©coute en continu pour ne pas rater les petits mots
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
@@ -383,7 +385,7 @@ export default function App() {
         const base64 = canvas.toDataURL('image/jpeg', 0.7);
         setPendingPhoto(base64);
         setView('photo-preview');
-        // On vide l'input pour permettre de sélectionner à nouveau la même photo
+        // On vide l'input pour permettre de sÃ©lectionner Ã  nouveau la mÃªme photo
         e.target.value = '';
       };
       img.src = event.target?.result as string;
@@ -412,7 +414,7 @@ export default function App() {
       const workbook = XLSX.read(data, { type: 'array' });
       let allEquipments: any[] = [];
 
-      // On parcourt TOUS les onglets (Données, Index_Equipement, etc.)
+      // On parcourt TOUS les onglets (DonnÃ©es, Index_Equipement, etc.)
       workbook.SheetNames.forEach(sheetName => {
         const worksheet = workbook.Sheets[sheetName];
         const json = XLSX.utils.sheet_to_json(worksheet);
@@ -426,13 +428,13 @@ export default function App() {
               return foundKey ? row[foundKey] : null;
             };
 
-            // Définition des colonnes à chercher (on ignore désormais Sous_Zone)
-            let keysToSearch = ['Equipement', 'équipement', 'poste technique'];
+            // DÃ©finition des colonnes Ã  chercher (on ignore dÃ©sormais Sous_Zone)
+            let keysToSearch = ['Equipement', 'Ã©quipement', 'poste technique'];
             
             if (sheetName === 'Index_Equipement') {
-              // Si l'onglet Index_Equipement ne contient que des Sous_Zone, on cherche quand même Equipement
-              // S'il n'y en a pas, la ligne sera ignorée plus bas.
-              keysToSearch = ['Equipement', 'équipement', 'poste technique'];
+              // Si l'onglet Index_Equipement ne contient que des Sous_Zone, on cherche quand mÃªme Equipement
+              // S'il n'y en a pas, la ligne sera ignorÃ©e plus bas.
+              keysToSearch = ['Equipement', 'Ã©quipement', 'poste technique'];
             }
 
             const equipmentId = String(getValue(keysToSearch) || '');
@@ -443,10 +445,10 @@ export default function App() {
             return {
               id: `equip-${sheetName}-${index}-${Date.now()}`,
               equipment: equipmentId,
-              equipmentLabel: String(getValue(['Libellé équipement', 'libelle equipement', 'Libelle_Equipement', 'Libellé_Equipement', 'libelle', 'description equipement']) || ''),
-              sapCode: String(getValue(['Article', 'SAP', 'Code SAP', 'Référence']) || ''),
-              designation: String(getValue(['Désignation', 'designation', 'nom', 'description']) || ''),
-              quantity: Number(getValue(['Quantité', 'quantite', 'qte', 'qté']) || 0)
+              equipmentLabel: String(getValue(['LibellÃ© Ã©quipement', 'libelle equipement', 'Libelle_Equipement', 'LibellÃ©_Equipement', 'libelle', 'description equipement']) || ''),
+              sapCode: String(getValue(['Article', 'SAP', 'Code SAP', 'RÃ©fÃ©rence']) || ''),
+              designation: String(getValue(['DÃ©signation', 'designation', 'nom', 'description']) || ''),
+              quantity: Number(getValue(['QuantitÃ©', 'quantite', 'qte', 'qtÃ©']) || 0)
             };
           }).filter(Boolean); // On retire les lignes vides
 
@@ -478,10 +480,10 @@ export default function App() {
         };
         return {
           id: `import-${index}-${Date.now()}`,
-          name: String(getValue(['Désignation article', 'Désignation', 'Nom', 'Description']) || 'Article sans nom'),
-          category: String(getValue(['Catégorie', 'Category', 'Famille']) || 'Non spécifié'),
-          sapCode: String(getValue(['Code Article', 'Code article', 'Article', 'SAP', 'Code SAP', 'Référence']) || 'N/A'),
-          location: String(getValue(['Emplacemt', 'Emplacement', 'Location', 'Zone']) || 'Non spécifié'),
+          name: String(getValue(['DÃ©signation article', 'DÃ©signation', 'Nom', 'Description']) || 'Article sans nom'),
+          category: String(getValue(['CatÃ©gorie', 'Category', 'Famille']) || 'Non spÃ©cifiÃ©'),
+          sapCode: String(getValue(['Code Article', 'Code article', 'Article', 'SAP', 'Code SAP', 'RÃ©fÃ©rence']) || 'N/A'),
+          location: String(getValue(['Emplacemt', 'Emplacement', 'Location', 'Zone']) || 'Non spÃ©cifiÃ©'),
           cartQuantity: 0
         };
       });
@@ -500,7 +502,7 @@ export default function App() {
       const importedItems = parseExcelData(evt.target?.result);
       if (importedItems) {
         setCatalogItems(importedItems);
-        alert(`${importedItems.length} articles chargés !`);
+        alert(`${importedItems.length} articles chargÃ©s !`);
       }
       setIsImporting(false);
     };
@@ -511,41 +513,28 @@ export default function App() {
     try {
       setIsSyncing(true);
 
-      // Sync équipements depuis Supabase
+      // Synchro des Ã©quipements depuis GitHub
       try {
-        const { data: equipsData, error: equipsError } = await supabase
-          .from('equipments')
-          .select('*');
-        if (!equipsError && equipsData) {
-          setEquipments(equipsData.map(e => ({
-            id: e.id,
-            equipment: e.equipment || '',
-            equipmentLabel: e.equipment_label || '',
-            sapCode: e.sap_code || '',
-            designation: e.designation || '',
-            quantity: e.quantity || 0,
-          })));
+        const eqResp = await fetch(EQUIPMENTS_URL);
+        if (eqResp.ok) {
+          const eqData = await eqResp.arrayBuffer();
+          const importedEquips = parseEquipmentsExcelData(eqData);
+          if (importedEquips) setEquipments(importedEquips);
         }
-      } catch (err) { console.error('Erreur sync Equipements Supabase:', err); }
+      } catch (err) { console.error("Erreur sync Equipements GitHub:", err); }
 
-      // Sync catalogue depuis Supabase
-      const { data: catalogData, error } = await supabase
-        .from('catalog_items')
-        .select('*');
-      if (error) throw error;
-
-      if (catalogData) {
-        setCatalogItems(catalogData.map(item => ({
-          id: item.id,
-          name: item.name || '',
-          category: item.category || '',
-          sapCode: item.sap_code || '',
-          location: item.location || '',
-          cartQuantity: 0,
-        })));
+      const response = await fetch(CATALOG_URL);
+      if (!response.ok) throw new Error('Erreur lors du tÃ©lÃ©chargement du catalogue');
+      
+      const data = await response.arrayBuffer();
+      const importedItems = parseExcelData(data);
+      
+      if (importedItems) {
+        setCatalogItems(importedItems);
+        console.log(`${importedItems.length} articles synchronisÃ©s depuis GitHub !`);
       }
     } catch (err) {
-      console.error('Erreur sync Supabase:', err);
+      console.error("Erreur sync GitHub:", err);
     } finally {
       setIsSyncing(false);
     }
@@ -581,7 +570,7 @@ export default function App() {
         console.warn("Torch capabilities check failed (common on iOS/some browsers)", e);
       }
 
-      // Petite pause pour laisser Safari stabiliser le flux vidéo
+      // Petite pause pour laisser Safari stabiliser le flux vidÃ©o
       await new Promise(r => setTimeout(r, 300));
 
       if (view === 'scan') {
@@ -629,7 +618,7 @@ export default function App() {
           };
           scanLoopRef.current = requestAnimationFrame(scanLoop);
         } else {
-          log('Mode: ZXing canvas — init...');
+          log('Mode: ZXing canvas â init...');
           const { BrowserMultiFormatReader } = await import('@zxing/browser');
           const reader = new BrowserMultiFormatReader();
           zxingReaderRef.current = reader;
@@ -645,7 +634,7 @@ export default function App() {
                   canvas.width = video.videoWidth;
                   canvas.height = video.videoHeight;
                   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                  log(`ZXing frame ${frames} — ${canvas.width}x${canvas.height}`);
+                  log(`ZXing frame ${frames} â ${canvas.width}x${canvas.height}`);
                   const result = await reader.decodeFromCanvas(canvas);
                   if (result && isActive) {
                     isActive = false;
@@ -654,7 +643,7 @@ export default function App() {
                     break;
                   }
                 } else {
-                  log(`ZXing frame ${frames} — vidéo pas prête (state:${video.readyState} w:${video.videoWidth})`);
+                  log(`ZXing frame ${frames} â vidÃ©o pas prÃªte (state:${video.readyState} w:${video.videoWidth})`);
                 }
               } catch (e: any) {
                 const msg = e?.message || String(e);
@@ -722,7 +711,7 @@ export default function App() {
     if (navigator.vibrate) navigator.vibrate(100);
     let cleanCode = code.trim();
     if (cleanCode.startsWith(']C1')) cleanCode = cleanCode.substring(3);
-    setScanResult(`Code détecté : ${cleanCode}`);
+    setScanResult(`Code dÃ©tectÃ© : ${cleanCode}`);
     const foundItem = catalogItemsRef.current.find(item =>
       String(item.sapCode).trim() === cleanCode || cleanCode.includes(String(item.sapCode).trim())
     );
@@ -743,9 +732,9 @@ export default function App() {
   const scoreItem = (item: CatalogItem, ai: AIAnalysis): number => {
     const cleanString = (s: string | undefined) => s ? String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/,/g, '.') : '';
     
-    // Pour une recherche plus tolérante, on remplace certains raccourcis du catalogue
+    // Pour une recherche plus tolÃ©rante, on remplace certains raccourcis du catalogue
     let itemName = cleanString(item.name);
-    // Remplacement des abréviations courantes
+    // Remplacement des abrÃ©viations courantes
     itemName = itemName.replace(/\bmot\./g, 'moteur ').replace(/\bmot\b/g, 'moteur ');
     
     const itemNameClean = itemName;
@@ -781,20 +770,20 @@ export default function App() {
       score += 500;
     }
 
-    // --- MOTS BANIS pour la recherche de modèle (ne doivent pas rapporter de points de modèle) ---
+    // --- MOTS BANIS pour la recherche de modÃ¨le (ne doivent pas rapporter de points de modÃ¨le) ---
     const stopWords = ['moteur', 'pompe', 'capteur', 'abb', 'sew', 'siemens', 'danfoss', 'variateur', 'reducteur', 'ventilateur', 'triphase', 'monophase'];
 
-    // 1. RECHERCHE DU MODÈLE (Priorité Absolue)
+    // 1. RECHERCHE DU MODÃLE (PrioritÃ© Absolue)
     if (ai.model) {
       const modelClean = cleanString(ai.model).replace(/[^a-z0-9]/g, '');
-      // Match exact très strict et puissant (ex: "K37")
+      // Match exact trÃ¨s strict et puissant (ex: "K37")
       if (modelClean.length > 3 && searchableNoSpace.replace(/\./g, '').includes(modelClean)) {
         score += 2000;
       } else {
         // Match partiel (ex: "K37" dans "Moteur K37-A")
         const modelParts = cleanString(ai.model).split(/[\s\-_/]+/);
         modelParts.forEach(p => {
-          // Uniquement si ce n'est pas un mot générique
+          // Uniquement si ce n'est pas un mot gÃ©nÃ©rique
           if (p.length > 2 && !stopWords.includes(p)) {
             // Si la partie contient des chiffres, c'est un identifiant fort
             const isNumeric = /\d/.test(p);
@@ -836,7 +825,7 @@ export default function App() {
 
         const commonSpec = specClean.includes('kw') || ['50hz', '60hz', '230v', '240v', '380v', '400v', '415v', '460v'].includes(specNoSpace);
         if (!commonSpec && specNoSpace.length > 1 && searchableNoSpace.includes(specNoSpace)) {
-          score += 150; // Match complet avec l'unité
+          score += 150; // Match complet avec l'unitÃ©
         } else if (!commonSpec) {
           // Extraction du nombre uniquement (ex: "0.75" dans "0.75kW" ou "220" dans "220D")
           const numMatch = specNoSpace.match(/[0-9]+([.][0-9]+)?/);
@@ -850,7 +839,7 @@ export default function App() {
       });
     }
 
-    // 4. TYPE GÉNÉRIQUE
+    // 4. TYPE GÃNÃRIQUE
     if (ai.type) {
       const typeWords = cleanString(ai.type).split(/[\s\-_/]+/);
       typeWords.forEach(w => {
@@ -860,7 +849,7 @@ export default function App() {
       });
     }
 
-    // BONUS : Si le N° SAP exact a été lu par l'IA (sur une étiquette par ex)
+    // BONUS : Si le NÂ° SAP exact a Ã©tÃ© lu par l'IA (sur une Ã©tiquette par ex)
     if (item.sapCode && item.sapCode !== 'N/A') {
       const sapStr = String(item.sapCode).trim();
       if (sapStr.length >= 5) {
@@ -885,18 +874,18 @@ export default function App() {
   const AI_PROMPT = `Analyse cette plaque technique industrielle.
 Extrais les informations suivantes au format JSON :
 - raw_ocr: Tout le texte lisible sur une seule ligne.
-- type: Type de pièce (moteur, pompe, etc.).
+- type: Type de piÃ¨ce (moteur, pompe, etc.).
 - brand: Marque fabricant.
-- model: Référence précise du modèle.
+- model: RÃ©fÃ©rence prÃ©cise du modÃ¨le.
 - specs: Liste des valeurs techniques (kW, RPM, V, A, Hz...). Identifie surtout la puissance en kW.
-- description: Un court résumé (ex: Moteur 15kW).
+- description: Un court rÃ©sumÃ© (ex: Moteur 15kW).
 
-Réponds uniquement par le JSON.`;
+RÃ©ponds uniquement par le JSON.`;
 
-  // Modèle Groq vision (Llama 4 Scout est multimodal). À changer ici si Groq déprécie le modèle.
+  // ModÃ¨le Groq vision (Llama 4 Scout est multimodal). Ã changer ici si Groq dÃ©prÃ©cie le modÃ¨le.
   const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
-  // Détecte si une erreur Gemini est liée au quota (429, "quota", "rate limit", "exhausted"...)
+  // DÃ©tecte si une erreur Gemini est liÃ©e au quota (429, "quota", "rate limit", "exhausted"...)
   const isQuotaError = (err: any): boolean => {
     if (!err) return false;
     if (err.status === 429) return true;
@@ -904,16 +893,16 @@ Réponds uniquement par le JSON.`;
     return /quota|rate.?limit|exhausted|resource.?exhausted|too many requests/.test(msg);
   };
 
-  // Parse le texte brut renvoyé par une IA et le transforme en AIAnalysis
+  // Parse le texte brut renvoyÃ© par une IA et le transforme en AIAnalysis
   const parseAIResponse = (textContent: string): AIAnalysis => {
     const firstBrace = textContent.indexOf('{');
     const lastBrace = textContent.lastIndexOf('}');
     if (firstBrace === -1 || lastBrace === -1) {
-      throw new Error("Aucun JSON trouvé dans la réponse");
+      throw new Error("Aucun JSON trouvÃ© dans la rÃ©ponse");
     }
     const jsonContent = textContent.substring(firstBrace, lastBrace + 1);
 
-    // RÉPARATEUR DE JSON ULTRA-ROBUSTE
+    // RÃPARATEUR DE JSON ULTRA-ROBUSTE
     const sanitized = jsonContent
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
       .replace(/\n/g, " ");
@@ -938,7 +927,7 @@ Réponds uniquement par le JSON.`;
     return result;
   };
 
-  // Appel Gemini — renvoie le texte brut de la réponse, lance une Error enrichie (.status) si HTTP non-OK
+  // Appel Gemini â renvoie le texte brut de la rÃ©ponse, lance une Error enrichie (.status) si HTTP non-OK
   const callGemini = async (base64Data: string, apiKey: string): Promise<string> => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
     const response = await fetch(url, {
@@ -969,7 +958,7 @@ Réponds uniquement par le JSON.`;
     return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   };
 
-  // Appel Groq — API OpenAI-compatible, modèle vision Llama 4 Scout
+  // Appel Groq â API OpenAI-compatible, modÃ¨le vision Llama 4 Scout
   const callGroq = async (base64Data: string, apiKey: string): Promise<string> => {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -1018,10 +1007,10 @@ Réponds uniquement par le JSON.`;
 
       if (!geminiKey && !groqKey) {
         setView('settings');
-        throw new Error('Veuillez configurer au moins une clé API (Gemini ou Groq) dans les paramètres.');
+        throw new Error('Veuillez configurer au moins une clÃ© API (Gemini ou Groq) dans les paramÃ¨tres.');
       }
 
-      // Capture image depuis la vidéo
+      // Capture image depuis la vidÃ©o
       const canvas = document.createElement('canvas');
       const maxSize = 1200;
       let width = videoRef.current.videoWidth;
@@ -1048,22 +1037,22 @@ Réponds uniquement par le JSON.`;
         try {
           textContent = await callGemini(base64Data, geminiKey);
         } catch (geminiErr: any) {
-          console.warn('Gemini a échoué :', geminiErr.message);
+          console.warn('Gemini a Ã©chouÃ© :', geminiErr.message);
           const quotaHit = isQuotaError(geminiErr);
           const serverDown = geminiErr.status >= 500 && geminiErr.status < 600;
 
           if ((quotaHit || serverDown) && groqKey) {
-            setToastMessage(quotaHit ? 'Quota Gemini atteint — bascule sur Groq…' : 'Gemini indisponible — bascule sur Groq…');
+            setToastMessage(quotaHit ? 'Quota Gemini atteint â bascule sur Groqâ¦' : 'Gemini indisponible â bascule sur Groqâ¦');
             setTimeout(() => setToastMessage(null), 2500);
             providerUsed = 'Groq';
             textContent = await callGroq(base64Data, groqKey);
           } else {
-            // Erreur Gemini non rattrapable (ex: clé invalide, image refusée) ou pas de clé Groq
+            // Erreur Gemini non rattrapable (ex: clÃ© invalide, image refusÃ©e) ou pas de clÃ© Groq
             throw geminiErr;
           }
         }
       } else {
-        // Pas de clé Gemini → on tape directement Groq
+        // Pas de clÃ© Gemini â on tape directement Groq
         providerUsed = 'Groq';
         textContent = await callGroq(base64Data, groqKey);
       }
@@ -1078,7 +1067,7 @@ Réponds uniquement par le JSON.`;
 
       if (scored.length === 0) {
         const specsText = Array.isArray(result.specs) ? result.specs.join(', ') : String(result.specs || '');
-        alert(`IA (${providerUsed}) détecte : ${result.description || 'Inconnu'}\n\nSpécifications lues : ${specsText}\n\nAucun article correspondant dans le catalogue.`);
+        alert(`IA (${providerUsed}) dÃ©tecte : ${result.description || 'Inconnu'}\n\nSpÃ©cifications lues : ${specsText}\n\nAucun article correspondant dans le catalogue.`);
         return;
       }
 
@@ -1088,32 +1077,32 @@ Réponds uniquement par le JSON.`;
       } else {
         const specsText = Array.isArray(result.specs) ? result.specs.join(', ') : String(result.specs || '');
         setAiMatches(scored);
-        setScanResult(result.raw_ocr || `${result.brand ? result.brand + ' — ' : ''}${specsText}`);
+        setScanResult(result.raw_ocr || `${result.brand ? result.brand + ' â ' : ''}${specsText}`);
       }
     } catch (err: any) {
       console.error(err);
-      alert(`Analyse échouée : ${err.message}`);
+      alert(`Analyse Ã©chouÃ©e : ${err.message}`);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const categories = useMemo(() => Array.from(new Set(catalogItems.map(i => i.category))).filter(c => c !== 'Non spécifié'), [catalogItems]);
+  const categories = useMemo(() => Array.from(new Set(catalogItems.map(i => i.category))).filter(c => c !== 'Non spÃ©cifiÃ©'), [catalogItems]);
   
   const filteredItems = useMemo(() => {
     // Si pas de recherche, on retourne le catalogue tel quel
     if (!searchQuery && !locationQuery && !selectedCategory) return catalogItems;
 
-    // Découpage de la recherche et création de conditions strictes pour les nombres et pluriels
+    // DÃ©coupage de la recherche et crÃ©ation de conditions strictes pour les nombres et pluriels
     const searchRegexes = searchQuery
       .toLowerCase()
       .split(/\s+/)
       .filter(w => w.length > 0)
       .map(word => {
-        // Enlève les accents du mot recherché
+        // EnlÃ¨ve les accents du mot recherchÃ©
         let cleanWord = word.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         
-        // Tolérance singulier/pluriel : si le mot de plus de 3 lettres finit par 's' ou 'x', on recule d'une lettre
+        // TolÃ©rance singulier/pluriel : si le mot de plus de 3 lettres finit par 's' ou 'x', on recule d'une lettre
         if (cleanWord.length > 3 && (cleanWord.endsWith('s') || cleanWord.endsWith('x'))) {
            cleanWord = cleanWord.slice(0, -1);
         }
@@ -1126,10 +1115,10 @@ Réponds uniquement par le JSON.`;
         }
         
         // Anti-faux-positif (ex: chercher "15" dans "315")
-        // Si le mot commence par un chiffre, le caractère d'avant ne doit pas être un chiffre
+        // Si le mot commence par un chiffre, le caractÃ¨re d'avant ne doit pas Ãªtre un chiffre
         if (/^\d/.test(cleanWord)) pattern = '(^|\\D)' + pattern;
         
-        // Si le mot finit par un chiffre, le caractère d'après ne doit pas être un chiffre
+        // Si le mot finit par un chiffre, le caractÃ¨re d'aprÃ¨s ne doit pas Ãªtre un chiffre
         if (/\d$/.test(cleanWord)) pattern = pattern + '(\\D|$)';
         
         return new RegExp(pattern, 'i');
@@ -1277,7 +1266,7 @@ Réponds uniquement par le JSON.`;
                   </div>
                   <div className="relative text-center">
                     <p className="font-bold text-gray-900 dark:text-white text-sm">Galerie</p>
-                    <p className="text-[11px] text-gray-400 dark:text-gray-400 mt-0.5">Ajouter à une note</p>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-400 mt-0.5">Ajouter Ã  une note</p>
                   </div>
                 </motion.button>
 
@@ -1294,7 +1283,7 @@ Réponds uniquement par le JSON.`;
                   </div>
                   <div className="relative">
                     <p className="font-bold text-gray-900 dark:text-white text-base">Bloc-notes</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-400 mt-0.5">{notes.length} note{notes.length !== 1 ? 's' : ''} enregistrée{notes.length !== 1 ? 's' : ''}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-400 mt-0.5">{notes.length} note{notes.length !== 1 ? 's' : ''} enregistrÃ©e{notes.length !== 1 ? 's' : ''}</p>
                   </div>
                 </motion.button>
               </div>
@@ -1349,7 +1338,7 @@ Réponds uniquement par le JSON.`;
                       </h3>
                       <p className="text-[11px] font-mono mt-1">
                         <span className="text-gray-400 font-bold">{item.sapCode}</span>
-                        <span className="text-gray-300 mx-2">—</span>
+                        <span className="text-gray-300 mx-2">â</span>
                         <span className="text-red-500 font-bold">{item.location}</span>
                       </p>
                     </div>
@@ -1405,7 +1394,7 @@ Réponds uniquement par le JSON.`;
                 <div className="absolute bottom-12 left-0 right-0 flex flex-col items-center gap-4 px-4">
                   <button onClick={analyzePhoto} disabled={isAnalyzing} className="w-full max-w-sm flex items-center justify-center gap-2 px-6 py-4 bg-white text-purple-600 rounded-2xl font-bold shadow-xl active:scale-95 transition-all">
                     {isAnalyzing ? <div className="w-5 h-5 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" /> : <Sparkles size={20} />}
-                    {isAnalyzing ? 'Analyse...' : 'Identifier la pièce'}
+                    {isAnalyzing ? 'Analyse...' : 'Identifier la piÃ¨ce'}
                   </button>
                 </div>
               </div>
@@ -1419,7 +1408,7 @@ Réponds uniquement par le JSON.`;
                   <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 max-h-[75vh] overflow-y-auto">
                     {scanResult && scanResult.includes('{') === false && (
                       <div className="mb-4 p-3 bg-gray-50 dark:bg-slate-900 rounded-xl border border-dashed border-gray-200 dark:border-slate-700">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Texte brut détecté (OCR) :</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Texte brut dÃ©tectÃ© (OCR) :</p>
                         <p className="text-xs text-gray-600 dark:text-gray-400 italic">"{scanResult}"</p>
                       </div>
                     )}
@@ -1437,7 +1426,7 @@ Réponds uniquement par le JSON.`;
                             <p className="font-bold text-gray-900 dark:text-white line-clamp-2">{item.name}</p>
                             <p className="text-[11px] font-mono mt-1">
                               <span className="text-blue-600 font-bold">{item.sapCode}</span>
-                              <span className="text-gray-300 mx-2">—</span>
+                              <span className="text-gray-300 mx-2">â</span>
                               <span className="text-red-500 font-bold">{item.location}</span>
                             </p>
                           </div>
@@ -1477,9 +1466,9 @@ Réponds uniquement par le JSON.`;
             <motion.div key="photo-preview" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[60] bg-black flex flex-col">
               {/* Photo en grand */}
               <div className="flex-1 relative flex items-center justify-center overflow-hidden">
-                <img src={pendingPhoto} alt="Aperçu" className="w-full h-full object-contain" />
+                <img src={pendingPhoto} alt="AperÃ§u" className="w-full h-full object-contain" />
                 
-                {/* Petit bouton X discret en haut à droite pour pouvoir quand même annuler si besoin */}
+                {/* Petit bouton X discret en haut Ã  droite pour pouvoir quand mÃªme annuler si besoin */}
                 <button onClick={() => { setPendingPhoto(null); setView('home'); }} className="absolute top-6 right-6 p-3 bg-black/40 backdrop-blur-md rounded-full text-white/70">
                   <X size={24} />
                 </button>
@@ -1520,7 +1509,7 @@ Réponds uniquement par le JSON.`;
                         <div className="flex justify-between items-start">
                           <div className="flex-1 pr-4">
                             <p className="font-bold dark:text-white leading-tight">{item.name}</p>
-                            <p className="text-xs font-mono text-gray-500 mt-1">SAP: {item.sapCode} — {item.location}</p>
+                            <p className="text-xs font-mono text-gray-500 mt-1">SAP: {item.sapCode} â {item.location}</p>
                           </div>
                           <button onClick={() => setCatalogItems(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: 0 } : i))} className="p-2 text-red-500 bg-red-50 rounded-lg hover:bg-red-100"><X size={18} /></button>
                         </div>
@@ -1536,7 +1525,7 @@ Réponds uniquement par le JSON.`;
                     onClick={() => {
                       const lines = cartItems.map(i => `- ${i.cartQuantity}x ${i.name} (SAP: ${i.sapCode} - Emplacement: ${i.location})`).join('\n');
                       const subject = encodeURIComponent('Sortie Magasin - Liste d\'articles');
-                      const body = encodeURIComponent(`Bonjour,\n\nVoici la liste des articles à sortir du stock ce jour :\n\n${lines}\n\nMerci,\nRégulation Magasin (via App)`);
+                      const body = encodeURIComponent(`Bonjour,\n\nVoici la liste des articles Ã  sortir du stock ce jour :\n\n${lines}\n\nMerci,\nRÃ©gulation Magasin (via App)`);
                       window.location.href = `mailto:SHR-NSL-magasin_nesle@tereos.com?subject=${subject}&body=${body}`;
                     }}
                     className="w-full py-4 mt-6 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-xl flex items-center justify-center gap-2 transition-colors active:scale-95"
@@ -1559,7 +1548,7 @@ Réponds uniquement par le JSON.`;
                 <Search className="absolute left-4 text-gray-400" size={20} />
                 <input 
                   type="text" 
-                  placeholder="Rechercher équipement (ex: SAA...)" 
+                  placeholder="Rechercher Ã©quipement (ex: SAA...)" 
                   value={equipmentSearchQuery} 
                   onChange={(e) => setEquipmentSearchQuery(e.target.value)} 
                   className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl shadow-sm outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-gray-900 dark:text-white placeholder:text-gray-400 dark:text-gray-400" 
@@ -1578,13 +1567,13 @@ Réponds uniquement par le JSON.`;
                     const sap = String(e.sapCode || '').toLowerCase();
                     const des = (e.designation || '').toLowerCase();
 
-                    // Si la recherche est très courte (ex: "9x"), on ne cherche que dans le code ou le libellé de l'équipement
-                    // Cela évite de ressortir toutes les pièces qui ont un "x" dans leurs dimensions
+                    // Si la recherche est trÃ¨s courte (ex: "9x"), on ne cherche que dans le code ou le libellÃ© de l'Ã©quipement
+                    // Cela Ã©vite de ressortir toutes les piÃ¨ces qui ont un "x" dans leurs dimensions
                     if (query.length <= 3) {
                       return eq.includes(query) || label.includes(query);
                     }
 
-                    // Sinon (recherche plus longue), on cherche partout (SAP, désignation, etc.)
+                    // Sinon (recherche plus longue), on cherche partout (SAP, dÃ©signation, etc.)
                     return eq.includes(query) || label.includes(query) || sap.includes(query) || des.includes(query);
                   }).map(e => e.equipment)))
                     .slice(0, 50)
@@ -1592,7 +1581,7 @@ Réponds uniquement par le JSON.`;
                       const eqData = equipments.find(e => e.equipment === eqName);
                       const partsCount = equipments.filter(e => e.equipment === eqName).length;
                       
-                      // On cherche si un article spécifique correspond à la recherche dans cet équipement
+                      // On cherche si un article spÃ©cifique correspond Ã  la recherche dans cet Ã©quipement
                       const matchingPart = equipmentSearchQuery.length > 2 ? equipments.find(e => 
                         e.equipment === eqName && 
                         ((e.sapCode && String(e.sapCode).toLowerCase().includes(equipmentSearchQuery.toLowerCase())) ||
@@ -1609,11 +1598,11 @@ Réponds uniquement par le JSON.`;
                                 <HighlightedText text={eqData.equipmentLabel} highlight={equipmentSearchQuery} />
                               </p>
                             )}
-                             <p className="text-[11px] font-bold text-cyan-600 mt-2 bg-cyan-50 dark:bg-slate-900 inline-block px-2 py-1 rounded-md">{partsCount} pièce(s) de rechange</p>
+                             <p className="text-[11px] font-bold text-cyan-600 mt-2 bg-cyan-50 dark:bg-slate-900 inline-block px-2 py-1 rounded-md">{partsCount} piÃ¨ce(s) de rechange</p>
                              
                              {matchingPart && (
                                <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                                 <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase">Article trouvé :</p>
+                                 <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase">Article trouvÃ© :</p>
                                  <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-1">
                                    <span className="font-mono font-bold mr-2"><HighlightedText text={String(matchingPart.sapCode)} highlight={equipmentSearchQuery} /></span>
                                    <HighlightedText text={matchingPart.designation} highlight={equipmentSearchQuery} />
@@ -1627,7 +1616,7 @@ Réponds uniquement par le JSON.`;
                     })}
                   {equipments.length === 0 && (
                     <div className="p-8 text-center text-gray-500 bg-white dark:bg-slate-800 rounded-3xl border border-dashed border-gray-300 dark:border-slate-700">
-                      <p>Aucun équipement chargé.</p>
+                      <p>Aucun Ã©quipement chargÃ©.</p>
                       <button onClick={() => fetchGitHubCatalog()} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-md hover:bg-blue-700">Synchroniser</button>
                     </div>
                   )}
@@ -1659,7 +1648,7 @@ Réponds uniquement par le JSON.`;
                           if (foundInCatalog) {
                             setSelectedItem(foundInCatalog);
                           } else {
-                            alert(`L'article SAP ${part.sapCode} n'a pas été trouvé dans le magasin principal.`);
+                            alert(`L'article SAP ${part.sapCode} n'a pas Ã©tÃ© trouvÃ© dans le magasin principal.`);
                           }
                         }}
                         className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 flex items-center justify-between active:scale-[0.98] transition-transform cursor-pointer hover:border-blue-300 group shadow-sm"
@@ -1668,7 +1657,7 @@ Réponds uniquement par le JSON.`;
                           <p className="font-bold text-gray-900 dark:text-white text-sm line-clamp-2">{part.designation}</p>
                           <div className="flex items-center gap-3 mt-2">
                             <span className="text-[11px] font-mono text-blue-600 font-bold bg-blue-50 dark:bg-slate-900 px-2 py-0.5 rounded">{part.sapCode}</span>
-                            <span className="text-[11px] font-bold text-gray-500">Qté: {part.quantity}</span>
+                            <span className="text-[11px] font-bold text-gray-500">QtÃ©: {part.quantity}</span>
                           </div>
                         </div>
                         <div className="w-8 h-8 rounded-full bg-gray-50 dark:bg-slate-900 flex items-center justify-center text-gray-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
@@ -1690,7 +1679,7 @@ Réponds uniquement par le JSON.`;
                 <div className="w-20" />
               </div>
 
-              {/* Formulaire d'ajout / édition */}
+              {/* Formulaire d'ajout / Ã©dition */}
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 space-y-3">
                 {noteImage && (
                   <div className="relative w-full aspect-video rounded-xl overflow-hidden mb-3 border border-gray-200 dark:border-slate-700">
@@ -1750,7 +1739,7 @@ Réponds uniquement par le JSON.`;
                 <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl text-center border border-dashed border-gray-300 dark:border-slate-700">
                   <StickyNote size={40} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
                   <p className="text-gray-500">Aucune note pour le moment.</p>
-                  <p className="text-gray-400 text-sm mt-1">Créez votre première note ci-dessus !</p>
+                  <p className="text-gray-400 text-sm mt-1">CrÃ©ez votre premiÃ¨re note ci-dessus !</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1804,7 +1793,7 @@ Réponds uniquement par le JSON.`;
                 <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <Settings size={32} />
                 </div>
-                <h2 className="text-2xl font-bold dark:text-white">Paramètres</h2>
+                <h2 className="text-2xl font-bold dark:text-white">ParamÃ¨tres</h2>
                 <p className="text-gray-500 dark:text-gray-400 text-sm">Configuration des services IA</p>
               </div>
 
@@ -1815,16 +1804,16 @@ Réponds uniquement par le JSON.`;
                   </div>
                   <div>
                     <h3 className="font-bold dark:text-white">Analyse de Plaques</h3>
-                    <p className="text-[11px] text-gray-400">Propulsé par Google Gemini 2.5 Flash</p>
+                    <p className="text-[11px] text-gray-400">PropulsÃ© par Google Gemini 2.5 Flash</p>
                   </div>
                 </div>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 px-1">Clé API Gemini</label>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 px-1">ClÃ© API Gemini</label>
                     <input 
                       type="password" 
-                      placeholder="Saisir votre clé api Google..."
+                      placeholder="Saisir votre clÃ© api Google..."
                       defaultValue={localStorage.getItem('gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY || ''}
                       onChange={(e) => {
                         localStorage.setItem('gemini_api_key', e.target.value);
@@ -1834,19 +1823,19 @@ Réponds uniquement par le JSON.`;
                     />
                   </div>
                   <p className="text-[10px] text-gray-400 px-1 leading-relaxed">
-                    Obtenez une clé gratuite sur <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">aistudio.google.com</a>.
+                    Obtenez une clÃ© gratuite sur <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">aistudio.google.com</a>.
                   </p>
                   <div className="mt-4">
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 px-1">Clé API Groq <span className="text-green-500 normal-case font-normal">(fallback si quota Gemini dépassé)</span></label>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5 px-1">ClÃ© API Groq <span className="text-green-500 normal-case font-normal">(fallback si quota Gemini dÃ©passÃ©)</span></label>
                     <input
                       type="password"
-                      placeholder="Saisir votre clé api Groq..."
+                      placeholder="Saisir votre clÃ© api Groq..."
                       defaultValue={localStorage.getItem('groq_api_key') || import.meta.env.VITE_GROQ_API_KEY || ''}
                       onChange={(e) => localStorage.setItem('groq_api_key', e.target.value)}
                       className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl outline-none focus:border-green-500 transition-all font-mono text-sm dark:text-white"
                     />
                     <p className="text-[10px] text-gray-400 px-1 mt-1.5 leading-relaxed">
-                      Obtenez une clé gratuite sur <a href="https://console.groq.com/" target="_blank" rel="noopener noreferrer" className="text-green-500 underline">console.groq.com</a>. Bascule automatique sur <span className="font-mono text-gray-500">Llama 4 Scout</span> si Gemini renvoie quota ou erreur serveur.
+                      Obtenez une clÃ© gratuite sur <a href="https://console.groq.com/" target="_blank" rel="noopener noreferrer" className="text-green-500 underline">console.groq.com</a>. Bascule automatique sur <span className="font-mono text-gray-500">Llama 4 Scout</span> si Gemini renvoie quota ou erreur serveur.
                     </p>
                   </div>
                 </div>
@@ -1860,7 +1849,7 @@ Réponds uniquement par le JSON.`;
                   </div>
                   <div>
                     <h3 className="font-bold dark:text-white">Catalogue</h3>
-                    <p className="text-[11px] text-gray-400"><span className="text-blue-600 font-bold">{catalogItems.length}</span> articles chargés</p>
+                    <p className="text-[11px] text-gray-400"><span className="text-blue-600 font-bold">{catalogItems.length}</span> articles chargÃ©s</p>
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -1887,7 +1876,7 @@ Réponds uniquement par le JSON.`;
                 </div>
               </div>
 
-              {/* Thème */}
+              {/* ThÃ¨me */}
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 border border-gray-200 dark:border-slate-700 shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -1895,8 +1884,8 @@ Réponds uniquement par le JSON.`;
                       {isDark ? <Sun size={20} /> : <Moon size={20} />}
                     </div>
                     <div>
-                      <h3 className="font-bold dark:text-white">Thème</h3>
-                      <p className="text-[11px] text-gray-400">{isDark ? 'Mode sombre activé' : 'Mode clair activé'}</p>
+                      <h3 className="font-bold dark:text-white">ThÃ¨me</h3>
+                      <p className="text-[11px] text-gray-400">{isDark ? 'Mode sombre activÃ©' : 'Mode clair activÃ©'}</p>
                     </div>
                   </div>
                   <button
@@ -1950,7 +1939,7 @@ Réponds uniquement par le JSON.`;
               </div>
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">Analyse IA en cours</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
-                Lecture de la plaque signalétique et recherche de l'article correspondant...
+                Lecture de la plaque signalÃ©tique et recherche de l'article correspondant...
               </p>
               <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-4">
                 Attention, l'IA peut faire des erreurs
@@ -1981,9 +1970,9 @@ Réponds uniquement par le JSON.`;
                   <Package size={34} />
                 </div>
               </div>
-              <h3 className="text-2xl font-extrabold text-gray-900 dark:text-white">Chargement des données</h3>
+              <h3 className="text-2xl font-extrabold text-gray-900 dark:text-white">Chargement des donnÃ©es</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
-                Synchronisation du catalogue et des équipements en cours...
+                Synchronisation du catalogue et des Ã©quipements en cours...
               </p>
             </motion.div>
           </motion.div>
@@ -2017,7 +2006,7 @@ Réponds uniquement par le JSON.`;
                 }}
                 className={cn("w-full py-4 rounded-2xl font-bold transition-all shadow-md active:scale-[0.98]", (selectedItem.cartQuantity && selectedItem.cartQuantity > 0) ? "bg-orange-100 text-orange-700 hover:bg-orange-200" : "bg-blue-600 text-white hover:bg-blue-700")}
               >
-                {(selectedItem.cartQuantity && selectedItem.cartQuantity > 0) ? "Retirer du panier" : "Prélever article ?"}
+                {(selectedItem.cartQuantity && selectedItem.cartQuantity > 0) ? "Retirer du panier" : "PrÃ©lever article ?"}
               </button>
 
               <button
@@ -2032,7 +2021,7 @@ Réponds uniquement par le JSON.`;
                   </>
                 ) : (
                   <>
-                    <AlertCircle size={20} className="text-orange-500" /> Demander Réappro
+                    <AlertCircle size={20} className="text-orange-500" /> Demander RÃ©appro
                   </>
                 )}
               </button>
@@ -2044,7 +2033,7 @@ Réponds uniquement par le JSON.`;
       {isImporting && (
         <div className="fixed inset-0 z-[100] bg-white/90 flex flex-col items-center justify-center">
           <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="font-bold">Mise à jour du catalogue...</p>
+          <p className="font-bold">Mise Ã  jour du catalogue...</p>
         </div>
       )}
 
