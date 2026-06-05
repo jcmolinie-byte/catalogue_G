@@ -172,7 +172,7 @@ function buildSystemPrompt(
         .join('\n')
     : '(Aucun poste technique trouvé pour cette recherche)';
 
-  const basePrompt = `Tu es JC, expert en maintenance industrielle sur le site sucrier de Nesle (Tereos).
+  const basePrompt = `Tu es SAM (Stock Assistant Maintenance), expert en maintenance industrielle sur le site sucrier de Nesle (Tereos).
 Tu accompagnes les techniciens de maintenance au quotidien avec bienveillance et précision.
 
 ## Tes compétences
@@ -658,7 +658,7 @@ export default function AgentChat({ catalogItems, equipments, isDark }: AgentCha
     if (messages.length === 0) {
       setMessages([{
         role: 'model',
-        text: `Bonjour ! Je suis **JC**, ton assistant magasinier sur le site de Nesle.\n\nJ'ai accès au catalogue magasin (${catalogItems.length} articles) et aux postes techniques (51 701 postes via Supabase).\n\nPose-moi n'importe quelle question sur la maintenance, les pièces ou les équipements !`
+        text: `Bonjour ! Je suis **SAM**, ton assistant magasinier sur le site de Nesle.\n\nJ'ai accès au catalogue magasin (${catalogItems.length} articles) et aux postes techniques (51 701 postes via Supabase).\n\nPose-moi n'importe quelle question sur la maintenance, les pièces ou les équipements !`
       }]);
     }
   };
