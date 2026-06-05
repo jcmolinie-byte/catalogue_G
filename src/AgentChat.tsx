@@ -658,7 +658,7 @@ export default function AgentChat({ catalogItems, equipments, isDark }: AgentCha
     if (messages.length === 0) {
       setMessages([{
         role: 'model',
-        text: `Bonjour ! Je suis **SAM** (Stock Assistant Maintenance), ton assistant magasinier sur le site de Nesle.\n\nJ'ai accès au catalogue magasin (${catalogItems.length} articles) et aux postes techniques (51 701 postes via Supabase).\n\nPose-moi n'importe quelle question sur la maintenance, les pièces ou les équipements !`
+        text: `Bonjour ! Je suis **SAM** (Stock Assistant Maintenance), ton assistant magasinier sur le site de Nesle.\n\nJ'ai accès au catalogue magasin (${catalogItems.length} articles) et aux postes techniques (51 701 postes).\n\nPose-moi n'importe quelle question sur la maintenance, les pièces ou les équipements !`
       }]);
     }
   };
