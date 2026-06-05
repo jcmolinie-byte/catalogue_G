@@ -800,7 +800,7 @@ export default function AgentChat({ catalogItems, equipments, isDark }: AgentCha
                   )}>
                     <Loader2 size={14} className="text-blue-600 animate-spin" />
                     <span className={cn("text-sm", isDark ? "text-slate-400" : "text-gray-500")}>
-                      JC réfléchit...
+                      SAM réfléchit...
                     </span>
                   </div>
                 </div>
@@ -851,7 +851,7 @@ export default function AgentChat({ catalogItems, equipments, isDark }: AgentCha
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder={isListening ? "🎙️ Parlez maintenant..." : "Pose ta question à JC..."}
+                  placeholder={isListening ? "🎙️ Parlez maintenant..." : "Pose ta question à SAM..."}
                   rows={1}
                   className={cn(
                     "flex-1 bg-transparent text-sm outline-none resize-none leading-relaxed max-h-28 py-1",
