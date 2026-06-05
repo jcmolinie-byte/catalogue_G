@@ -513,9 +513,10 @@ export default function App() {
 
       // Sync équipements depuis Supabase
       try {
-        const { data: equipsData, error: equipsError } = await supabase
+       const { data: equipsData, error: equipsError } = await supabase
           .from('equipments')
-          .select('*');
+          .select('*')
+          .range(0, 14999);
         if (!equipsError && equipsData) {
           setEquipments(equipsData.map(e => ({
             id: e.id,
@@ -531,8 +532,8 @@ export default function App() {
       // Sync catalogue depuis Supabase
       const { data: catalogData, error } = await supabase
         .from('catalog_items')
-        .select('*');
-      if (error) throw error;
+        .select('*')
+        .range(0, 14999);
 
       if (catalogData) {
         setCatalogItems(catalogData.map(item => ({
