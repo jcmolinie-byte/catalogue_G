@@ -18,4 +18,4 @@ export interface EquipmentItem {
   quantity: number;
 }
 
-export type View = 'home' | 'list' | 'scan' | 'ai-scan' | 'cart' | 'notes' | 'camera-simple' | 'photo-preview' | 'equipments' | 'settings';
+export type View = 'home' | 'list' | 'scan' | 'ai-scan' | 'cart' | 'notes' | 'camera-simple' | 'photo-preview' | 'equipments' | 'settings' | 'inventaire';
